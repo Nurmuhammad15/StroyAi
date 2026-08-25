@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StroyAI — панель администратора</title>
+<style>
+  :root{
+    --bg:#111116; --panel:#1a1a22; --card:#20202a; --card-2:#252530;
+    --text:#f2f2f5; --text-2:#a6a6b3; --text-3:#6f6f80;
+    --border:#33333f; --accent:#ff8a5c; --primary:#8c82ff;
+    --green:#2fbf71; --red:#ef5a5a; --amber:#f0b429;
+    --radius:14px; --radius-sm:9px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
+  a{color:inherit;}
+  button{font-family:inherit;}
+  .hidden{display:none !important;}
+
+  /* ---- Логин ---- */
+  #loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .login-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:32px;width:100%;max-width:340px;}
+  .login-card h1{font-size:19px;margin:0 0 4px;}
+  .login-card p{color:var(--text-2);font-size:13px;margin:0 0 20px;}
+  .login-card input{width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border);background:var(--card);color:var(--text);font-size:14px;margin-bottom:12px;}
+  .login-card input:focus{outline:none;border-color:var(--primary);}
+  .login-card button{width:100%;padding:12px;border-radius:var(--radius-sm);border:none;background:var(--primary);color:#fff;font-weight:700;font-size:14px;cursor:pointer;}
+  .login-error{color:var(--red);font-size:13px;margin:-4px 0 12px;min-height:16px;}
+
+  /* ---- Дашборд ---- */
+  #dashboard{max-width:960px;margin:0 auto;padding:20px 16px 80px;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:12px;flex-wrap:wrap;}
+  .topbar h1{font-size:20px;margin:0;}
+  .topbar .sub{color:var(--text-2);font-size:12.5px;}
+  .topbar-actions{display:flex;gap:8px;}
+  .btn-ghost{background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:var(--radius-sm);font-size:13px;cursor:pointer;}
+  .btn-ghost:hover{border-color:var(--text-3);}
+
+  .filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .filter-chip{padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--card);color:var(--text-2);font-size:12.5px;font-weight:600;cursor:pointer;}
+  .filter-chip.active{background:var(--primary);color:#fff;border-color:var(--primary);}
+  #searchInput{flex:1;min-width:160px;padding:8px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--card);color:var(--text);font-size:12.5px;}
+
+  .empty{text-align:center;color:var(--text-2);padding:60px 20px;font-size:14px;}
+
+  .order-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px;overflow:hidden;}
+  .order-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;gap:10px;flex-wrap:wrap;}
+  .order-head-left{display:flex;flex-direction:column;gap:2px;}
+  .order-head-left b{font-size:14.5px;}
+  .order-head-left span{font-size:12px;color:var(--text-2);}
+  .order-head-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  .pill{padding:4px 10px;border-radius:8px;font-size:11.5px;font-weight:700;white-space:nowrap;}
+  .pill.mode{background:#2e2a5c;color:#c9c3ff;}
+  .pill.awaiting{background:#3a2f14;color:var(--amber);}
+  .pill.paid{background:#123821;color:var(--green);}
+  .pill.problem{background:#3a1414;color:var(--red);}
+  .pill.cancelled{background:#3a1414;color:var(--red);}
+  .pill.total{background:var(--card-2);color:var(--text);}
+
+  .tabs-row{display:flex;gap:8px;margin-bottom:16px;}
+  .tab-btn{padding:8px 16px;border-radius:10px;border:1.5px solid var(--border);background:var(--card);color:var(--text-2);font-size:13px;font-weight:700;cursor:pointer;}
+  .tab-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
+  .client-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+  .client-card b{font-size:14.5px;}
+  .client-card .sub{font-size:12.5px;color:var(--text-2);margin-top:2px;}
+  .client-stats{display:flex;gap:16px;text-align:right;}
+  .client-stats div span{display:block;font-size:11.5px;color:var(--text-3);}
+  .client-stats div b{font-size:14px;}
+
+  .order-body{border-top:1px solid var(--border);padding:16px;display:none;}
+  .order-body.open{display:block;}
+  .section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-3);margin:0 0 8px;}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:13px;margin-bottom:14px;}
+  .kv div:nth-child(odd){color:var(--text-2);}
+  .items-list{margin-bottom:14px;}
+  .item-row{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px dashed var(--border);}
+  .item-row:last-child{border-bottom:none;}
+
+  .action-box{background:var(--card);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;}
+  .action-box .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .action-box input[type="number"]{width:140px;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;}
+  .btn{padding:8px 14px;border-radius:8px;border:none;font-weight:700;font-size:12.5px;cursor:pointer;}
+  .btn.primary{background:var(--primary);color:#fff;}
+  .btn.green{background:var(--green);color:#06301a;}
+  .btn.red{background:var(--red);color:#3a0a0a;}
+  .btn:disabled{opacity:0.5;cursor:not-allowed;}
+
+  .screenshot-preview{max-width:220px;border-radius:10px;margin:8px 0;display:block;cursor:zoom-in;}
+
+  .stepper{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;}
+  .step-btn{flex:1;min-width:120px;padding:9px 8px;border-radius:9px;border:1.5px solid var(--border);background:var(--card);color:var(--text-2);font-size:12px;font-weight:700;cursor:pointer;text-align:center;}
+  .step-btn.done{background:var(--primary);border-color:var(--primary);color:#fff;}
+  .step-btn.current{border-color:var(--accent);color:var(--accent);}
+
+  .lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:999;cursor:zoom-out;}
+  .lightbox img{max-width:92vw;max-height:92vh;border-radius:8px;}
+
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--card-2);border:1px solid var(--border);padding:10px 18px;border-radius:10px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:1000;opacity:0;pointer-events:none;transition:opacity 0.2s;}
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>StroyAI · Админ</h1>
+    <p>Введите пароль администратора, чтобы открыть панель заказов.</p>
+    <input id="loginPassword" type="password" placeholder="Пароль" onkeydown="if(event.key==='Enter') doLogin()">
+    <div class="login-error" id="loginError"></div>
+    <button onclick="doLogin()">Войти</button>
+  </div>
+</div>
+
+<div id="dashboard" class="hidden">
+  <div class="topbar">
+    <div>
+      <h1 id="pageTitle">Все заказы</h1>
+      <div class="sub" id="ordersCountLabel">—</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn-ghost" onclick="refreshCurrentTab()">↻ Обновить</button>
+      <button class="btn-ghost" onclick="doLogout()">Выйти</button>
+    </div>
+  </div>
+
+  <div class="tabs-row">
+    <div class="tab-btn active" data-tab="orders" onclick="setMainTab('orders')">Заказы</div>
+    <div class="tab-btn" data-tab="clients" onclick="setMainTab('clients')">Клиенты</div>
+  </div>
+
+  <div id="ordersTab">
+    <div class="filters">
+      <div class="filter-chip active" data-filter="all" onclick="setFilter('all')">Все</div>
+      <div class="filter-chip" data-filter="awaiting_delivery" onclick="setFilter('awaiting_delivery')">Ждут доставку</div>
+      <div class="filter-chip" data-filter="awaiting_confirmation" onclick="setFilter('awaiting_confirmation')">Не оплачено</div>
+      <div class="filter-chip" data-filter="paid" onclick="setFilter('paid')">Оплачены</div>
+      <div class="filter-chip" data-filter="problem" onclick="setFilter('problem')">Проблема с оплатой</div>
+      <div class="filter-chip" data-filter="cancelled" onclick="setFilter('cancelled')">Отменённые</div>
+      <input id="searchInput" placeholder="Поиск по номеру или имени…" oninput="renderOrders()">
+    </div>
+    <div id="ordersList"></div>
+  </div>
+
+  <div id="clientsTab" class="hidden">
+    <div class="filters">
+      <input id="clientSearchInput" placeholder="Поиск по имени, email или телефону…" oninput="renderClients()">
+    </div>
+    <div id="clientsList"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+let adminToken = localStorage.getItem('adminToken') || '';
+let orders = [];
+let clients = [];
+let clientsLoaded = false;
+let currentFilter = 'all';
+let currentMainTab = 'orders';
+let openOrderIds = new Set();
+
+function fmt(n){ return Math.round(n||0).toLocaleString('ru-RU') + ' сум'; }
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+async function api(path, {method='GET', body=null} = {}){
+  const res = await fetch('/api/admin' + path, {
+    method,
+    headers:{'Content-Type':'application/json', 'X-Admin-Token': adminToken},
+    body: body ? JSON.stringify(body) : null
+  });
+  if(res.status === 401){
+    adminToken = '';
+    localStorage.removeItem('adminToken');
+    showLogin();
+    throw new Error('Сессия истекла — войдите заново');
+  }
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.detail || 'Ошибка запроса');
+  return data;
+}
+
+function showLogin(){
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('dashboard').classList.add('hidden');
+}
+function showDashboard(){
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+  setMainTab('orders');
+  loadOrders();
+}
+
+async function doLogin(){
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  try{
+    const res = await fetch('/api/admin/login/', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password})
+    });
+    const data = await res.json();
+    if(!res.ok){ errEl.textContent = data.detail || 'Ошибка входа'; return; }
+    adminToken = data.token;
+    localStorage.setItem('adminToken', adminToken);
+    showDashboard();
+  }catch(err){ errEl.textContent = 'Не удалось связаться с сервером'; }
+}
+function doLogout(){
+  api('/logout/', {method:'POST'}).catch(()=>{});
+  adminToken = '';
+  localStorage.removeItem('adminToken');
+  showLogin();
+}
+
+function setFilter(f){
+  currentFilter = f;
+  document.querySelectorAll('.filter-chip').forEach(c=>c.classList.toggle('active', c.dataset.filter===f));
+  renderOrders();
+}
+
+function setMainTab(tabName){
+  currentMainTab = tabName;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tabName));
+  document.getElementById('ordersTab').classList.toggle('hidden', tabName!=='orders');
+  document.getElementById('clientsTab').classList.toggle('hidden', tabName!=='clients');
+  document.getElementById('pageTitle').textContent = tabName==='orders' ? 'Все заказы' : 'Клиенты';
+  if(tabName==='orders'){
+    document.getElementById('ordersCountLabel').textContent = `Всего заказов: ${orders.length}`;
+    renderOrders();
+  } else {
+    loadClients();
+  }
+}
+
+function refreshCurrentTab(){
+  if(currentMainTab==='orders') loadOrders(); else loadClients();
+}
+
+async function loadClients(){
+  try{
+    clients = await api('/users/');
+    clientsLoaded = true;
+    document.getElementById('ordersCountLabel').textContent = `Всего клиентов: ${clients.length}`;
+    renderClients();
+  }catch(err){ showToast(err.message); }
+}
+
+function renderClients(){
+  const list = document.getElementById('clientsList');
+  const q = (document.getElementById('clientSearchInput').value || '').trim().toLowerCase();
+  const filtered = clients.filter(c=>{
+    if(!q) return true;
+    const name = [c.first_name, c.last_name].filter(Boolean).join(' ').toLowerCase();
+    return name.includes(q) || (c.email||'').toLowerCase().includes(q) || (c.phone||'').toLowerCase().includes(q);
+  });
+  if(!filtered.length){
+    list.innerHTML = `<div class="empty">Клиентов не найдено</div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(c=>{
+    const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Без имени';
+    const date = c.created_at ? new Date(c.created_at).toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric'}) : '—';
+    const email = c.email && !c.email.endsWith('@users.local') ? c.email : '—';
+    return `<div class="client-card">
+      <div>
+        <b>${name}</b>
+        <div class="sub">${c.phone || '—'} · ${email}</div>
+        <div class="sub">Регистрация: ${date}</div>
+      </div>
+      <div class="client-stats">
+        <div><span>Заказов</span><b>${c.orders_count}</b></div>
+        <div><span>На сумму</span><b>${fmt(c.orders_total)}</b></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadOrders(){
+  try{
+    orders = await api('/orders/');
+    if(currentMainTab === 'orders') document.getElementById('ordersCountLabel').textContent = `Всего заказов: ${orders.length}`;
+    renderOrders();
+  }catch(err){ showToast(err.message); }
+}
+
+function matchesFilter(o){
+  if(currentFilter === 'all') return true;
+  if(currentFilter === 'cancelled') return o.status === 'cancelled';
+  if(currentFilter === 'awaiting_delivery') return o.awaiting_delivery_quote;
+  if(currentFilter === 'awaiting_confirmation') return o.blank_submitted && o.payment_status !== 'paid';
+  if(currentFilter === 'paid') return o.payment_status === 'paid';
+  if(currentFilter === 'problem') return o.payment_status === 'payment_problem';
+  return true;
+}
+function matchesSearch(o, q){
+  if(!q) return true;
+  q = q.toLowerCase();
+  return (o.order_number||'').toLowerCase().includes(q)
+      || (o.customer && o.customer.name || '').toLowerCase().includes(q)
+      || (o.customer_name || '').toLowerCase().includes(q)
+      || (o.customer && o.customer.phone || '').toLowerCase().includes(q);
+}
+
+function paymentPillClass(o){
+  if(o.payment_status === 'paid') return 'paid';
+  if(o.payment_status === 'payment_problem') return 'problem';
+  return 'awaiting';
+}
+
+function renderOrders(){
+  const list = document.getElementById('ordersList');
+  const q = document.getElementById('searchInput').value.trim();
+  const filtered = orders.filter(o => matchesFilter(o) && matchesSearch(o, q));
+
+  if(!filtered.length){
+    list.innerHTML = `<div class="empty">Заказов по этому фильтру нет</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(o => {
+    const isOpen = openOrderIds.has(o.id);
+    const custName = o.customer_name || (o.customer && o.customer.name) || 'Клиент';
+    const custContact = (o.customer && (o.customer.phone || o.customer.email)) || '—';
+    const date = new Date(o.created_at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+
+    return `<div class="order-card">
+      <div class="order-head" onclick="toggleOrder(${o.id})">
+        <div class="order-head-left">
+          <b>№${o.order_number}</b>
+          <span>${date} · ${custName} · ${custContact}</span>
+        </div>
+        <div class="order-head-right">
+          <span class="pill mode">${o.mode_display}</span>
+          ${o.status === 'cancelled' ? '<span class="pill cancelled">Отменён</span>' : ''}
+          ${o.awaiting_delivery_quote ? '<span class="pill awaiting">Ждёт доставку</span>' : ''}
+          <span class="pill ${paymentPillClass(o)}">${o.payment_status_display}</span>
+          <span class="pill total">${fmt(o.total)}</span>
+        </div>
+      </div>
+      <div class="order-body ${isOpen ? 'open' : ''}" id="body-${o.id}">
+        ${renderOrderBody(o)}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleOrder(id){
+  if(openOrderIds.has(id)) openOrderIds.delete(id); else openOrderIds.add(id);
+  const el = document.getElementById(`body-${id}`);
+  if(el){
+    el.classList.toggle('open');
+    if(el.classList.contains('open') && !el.dataset.loaded){
+      loadOrderDetail(id);
+    }
+  } else {
+    renderOrders();
+  }
+}
+
+async function loadOrderDetail(id){
+  const el = document.getElementById(`body-${id}`);
+  try{
+    const full = await api(`/orders/${id}/`);
+    const idx = orders.findIndex(o=>o.id===id);
+    if(idx>=0) orders[idx] = full;
+    el.innerHTML = renderOrderBody(full);
+    el.dataset.loaded = '1';
+  }catch(err){ showToast(err.message); }
+}
+
+function renderOrderBody(o){
+  const itemsHtml = (o.items||[]).map(it => `<div class="item-row"><span>${it.product ? it.product.name : 'Товар'} × ${it.quantity}</span><span>${fmt(it.line_total)}</span></div>`).join('');
+
+  if(o.status === 'cancelled'){
+    return `
+      <div class="section-title">Состав заказа</div>
+      <div class="items-list">${itemsHtml}</div>
+      <div class="kv">
+        <div>Итого:</div><div><b>${fmt(o.total)}</b></div>
+        <div>Заказчик:</div><div>${o.customer_name || (o.customer && o.customer.name) || '—'}</div>
+        <div>Контакт:</div><div>${(o.customer && (o.customer.phone || o.customer.email)) || '—'}</div>
+      </div>
+      <div class="action-box"><div class="section-title" style="color:var(--red);margin:0;">Этот заказ отменён</div></div>
+    `;
+  }
+
+  const deliveryBlock = (o.mode === 'delivery' && !o.delivery_quoted) ? `
+    <div class="action-box">
+      <div class="section-title">Указать стоимость доставки</div>
+      <div class="row">
+        <input type="number" id="feeInput-${o.id}" placeholder="${o.estimated_delivery_fee ? Math.round(o.estimated_delivery_fee) : 'Сумма, сум'}" min="0">
+        <button class="btn primary" onclick="submitDeliveryFee(${o.id})">Сохранить</button>
+      </div>
+      ${o.estimated_delivery_fee ? `<div style="color:var(--text-3);font-size:12px;margin-top:6px;">Ориентировочно по весу: ${fmt(o.estimated_delivery_fee)} — это только подсказка в сером поле, число нужно ввести самому</div>` : ''}
+    </div>` : '';
+
+  const requoteBlock = (o.mode === 'delivery' && o.delivery_quoted && !o.blank_submitted) ? `
+    <div class="action-box">
+      <div class="section-title">Стоимость доставки указана: ${fmt(o.delivery_fee)}</div>
+      <div class="row">
+        <input type="number" id="feeInput-${o.id}" placeholder="Новая сумма, сум" min="0">
+        <button class="btn primary" onclick="submitDeliveryFee(${o.id})">Изменить</button>
+      </div>
+    </div>` : '';
+
+  const paymentActionBlock = (o.blank_submitted && o.payment_status !== 'paid') ? `
+    <div class="action-box">
+      <div class="section-title">Оплата на месте (без предоплаты)</div>
+      <div class="row">
+        <button class="btn green" onclick="confirmPayment(${o.id})">✅ Отметить оплаченным</button>
+        <button class="btn red" onclick="rejectPayment(${o.id})">❌ Проблема с оплатой</button>
+      </div>
+    </div>` : '';
+
+  const canManageStatus = o.blank_submitted;
+  const steps = o.steps || [];
+  const stepperBlock = `
+    <div class="section-title">Статус выполнения${canManageStatus ? '' : ' (доступно после оформления клиентом)'}${o.needs_crew ? ' · с бригадой монтажа' : ''}</div>
+    <div class="stepper">
+      ${steps.map(s => {
+        const curIdx = steps.findIndex(x=>x.key===o.status);
+        const sIdx = steps.findIndex(x=>x.key===s.key);
+        const cls = sIdx === curIdx ? 'current' : (sIdx < curIdx ? 'done' : '');
+        return `<button class="step-btn ${cls}" ${canManageStatus ? '' : 'disabled'} onclick="setStatus(${o.id}, '${s.key}')">${s.label}</button>`;
+      }).join('')}
+    </div>`;
+
+  const cancelBlock = `
+    <div class="action-box">
+      <button class="btn red" onclick="cancelOrderAdmin(${o.id})">✕ Отменить заказ</button>
+    </div>`;
+
+  return `
+    <div class="section-title">Состав заказа</div>
+    <div class="items-list">${itemsHtml}</div>
+    <div class="kv">
+      <div>Товары:</div><div>${fmt(o.total - (o.delivery_quoted ? o.delivery_fee : 0))}</div>
+      ${o.mode==='delivery' ? `<div>Доставка:</div><div>${o.delivery_quoted ? fmt(o.delivery_fee) : 'не указана'}</div>` : ''}
+      <div>Итого:</div><div><b>${fmt(o.total)}</b></div>
+      <div>Заказчик:</div><div>${o.customer_name || (o.customer && o.customer.name) || '—'}</div>
+      <div>Контакт:</div><div>${(o.customer && (o.customer.phone || o.customer.email)) || '—'}</div>
+      ${o.mode==='delivery' ? `<div>Адрес:</div><div style="white-space:pre-line;">${o.delivery_address || '—'}</div>` : ''}
+      <div>Время:</div><div>${o.desired_time || '—'}</div>
+    </div>
+    ${deliveryBlock}
+    ${requoteBlock}
+    ${paymentActionBlock}
+    ${stepperBlock}
+    ${cancelBlock}
+  `;
+}
+
+async function submitDeliveryFee(id){
+  const input = document.getElementById(`feeInput-${id}`);
+  const fee = parseInt((input.value||'').replace(/[^0-9]/g,''), 10);
+  if(!fee && fee !== 0){ showToast('Укажите сумму доставки'); return; }
+  try{
+    const order = await api(`/orders/${id}/set-delivery/`, {method:'POST', body:{fee}});
+    updateOrderLocally(order);
+    showToast('Стоимость доставки сохранена');
+  }catch(err){ showToast(err.message); }
+}
+async function confirmPayment(id){
+  try{
+    const order = await api(`/orders/${id}/confirm-payment/`, {method:'POST'});
+    updateOrderLocally(order);
+    showToast('Оплата подтверждена');
+  }catch(err){ showToast(err.message); }
+}
+async function rejectPayment(id){
+  if(!confirm('Отклонить оплату по этому заказу?')) return;
+  try{
+    const order = await api(`/orders/${id}/reject-payment/`, {method:'POST'});
+    updateOrderLocally(order);
+    showToast('Оплата отклонена');
+  }catch(err){ showToast(err.message); }
+}
+async function setStatus(id, status){
+  try{
+    const order = await api(`/orders/${id}/set-status/`, {method:'POST', body:{status}});
+    updateOrderLocally(order);
+    showToast('Статус обновлён: ' + order.status_display);
+  }catch(err){ showToast(err.message); }
+}
+async function cancelOrderAdmin(id){
+  if(!confirm('Отменить этот заказ?')) return;
+  try{
+    const order = await api(`/orders/${id}/cancel/`, {method:'POST'});
+    updateOrderLocally(order);
+    showToast('Заказ отменён');
+  }catch(err){ showToast(err.message); }
+}
+function updateOrderLocally(order){
+  const idx = orders.findIndex(o=>o.id===order.id);
+  if(idx>=0) orders[idx] = {...orders[idx], ...order};
+  openOrderIds.add(order.id);
+  renderOrders();
+  const el = document.getElementById(`body-${order.id}`);
+  if(el){ el.classList.add('open'); el.dataset.loaded='1'; el.innerHTML = renderOrderBody(order); }
+}
+
+function openLightbox(src){
+  const box = document.createElement('div');
+  box.className = 'lightbox';
+  box.innerHTML = `<img src="${src}">`;
+  box.onclick = () => box.remove();
+  document.body.appendChild(box);
+}
+
+// Автообновление списка каждые 8 секунд, чтобы видеть новые заказы без
+// ручного нажатия «Обновить» (но не перерисовываем открытую карточку, чтобы
+// не сбивать админа во время работы с ней).
+setInterval(()=>{ if(adminToken && currentMainTab==='orders') loadOrders(); }, 8000);
+
+if(adminToken) showDashboard(); else showLogin();
+</script>
+</body>
+</html>

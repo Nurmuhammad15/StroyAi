@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/admin", "destination": "/admin.html" },
+    { "source": "/admin/", "destination": "/admin.html" },
+    { "source": "/api/:path*", "destination": "https://ВАШ-BACKEND.up.railway.app/api/:path*" }
+  ]
+}

@@ -1,0 +1,2809 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>StroyAI — стройматериалы</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root{
+    --primary:#5b4fe8;
+    --primary-dark:#4a3fd1;
+    --primary-light:#efedff;
+    --accent:#f2622c;
+    --accent-dark:#d94f1e;
+    --bg:#f5f5f7;
+    --card:#ffffff;
+    --text:#1a1a1a;
+    --text-2:#6b7280;
+    --text-3:#9aa0ab;
+    --border:#e9e9ee;
+    --blue:#2563eb;
+    --star:#f5a623;
+    --radius:16px;
+    --radius-sm:10px;
+  }
+  html[data-theme="dark"]{
+    --primary:#8c82ff;
+    --primary-dark:#9d94ff;
+    --primary-light:#2e2a5c;
+    --accent:#ff8a5c;
+    --accent-dark:#ff9d73;
+    --bg:#1a1a22;
+    --card:#252530;
+    --text:#f5f5f7;
+    --text-2:#b0b0bc;
+    --text-3:#7d7d8a;
+    --border:#38384a;
+    --blue:#5b9dff;
+    --star:#f5a623;
+  }
+  html[data-theme="dark"] body{ background:#111116; }
+  html[data-theme="dark"] .app-wrap{ background:var(--bg); }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    background:#e7e7ec;
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+  }
+  .app-wrap{
+    max-width:480px;
+    margin:0 auto;
+    min-height:100vh;
+    min-height:100dvh;
+    background:var(--bg);
+    position:relative;
+    box-shadow:0 0 40px rgba(0,0,0,0.08);
+    display:flex;
+    flex-direction:column;
+  }
+  .page{
+    display:none;
+    flex:1;
+    padding-bottom:90px;
+    opacity:0;
+    transform:translateY(8px);
+    transition:opacity .28s ease, transform .28s ease;
+  }
+  .page.active{
+    display:block;
+    opacity:1;
+    transform:translateY(0);
+  }
+
+  /* Top bar */
+  .topbar{
+    padding:18px 18px 10px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    background:var(--bg);
+    position:relative;
+  }
+  .topbar h1{font-size:20px;margin:0;font-weight:700;}
+  .loc{
+    display:flex;align-items:center;gap:5px;font-weight:700;font-size:15px;color:var(--text);
+    background:none;border:none;cursor:pointer;padding:6px 8px 6px 6px;border-radius:10px;
+  }
+  .loc:active{background:var(--card);}
+  .loc .pin{color:var(--accent);display:flex;}
+  .loc .chev{color:var(--text-3);display:flex;margin-left:2px;}
+  .icon-btn{
+    width:38px;height:38px;border-radius:50%;background:var(--card);
+    display:flex;align-items:center;justify-content:center;border:1px solid var(--border);
+    cursor:pointer; position:relative; flex-shrink:0;
+  }
+  .icon-btn:active{transform:scale(0.94);}
+  .back-row{
+    display:flex;align-items:center;gap:10px;padding:18px 18px 6px;background:var(--bg);
+  }
+  .back-row h1{font-size:19px;margin:0;font-weight:700;flex:1;}
+  .badge-dot{
+    position:absolute;top:7px;right:8px;width:9px;height:9px;border-radius:50%;background:var(--accent);border:2px solid var(--card);
+  }
+  .city-dropdown{
+    position:absolute;top:56px;left:18px;background:var(--card);border:1px solid var(--border);
+    border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.12);z-index:80;width:220px;
+    max-height:280px;overflow-y:auto;display:none;padding:6px;
+  }
+  .city-dropdown.open{display:block;}
+  .city-option{
+    padding:10px 12px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .city-option:hover{background:var(--primary-light);}
+  .city-option.selected{color:var(--primary);}
+  .city-option-soon{color:var(--text-3);cursor:default;}
+  .city-option-soon:hover{background:transparent;}
+  .city-soon-pill{background:var(--card-2, var(--bg));border:1px solid var(--border);border-radius:20px;padding:2px 9px;font-size:10.5px;font-weight:700;}
+  .city-note{font-size:11px;color:var(--text-3);padding:8px 10px 4px;font-weight:600;}
+
+  svg{display:block;}
+
+  /* Hero */
+  .hero{
+    margin:6px 18px 20px;
+    border-radius:20px;
+    background:linear-gradient(135deg,#5b4fe8 0%,#7c6ff0 100%);
+    color:#fff;
+    position:relative;
+    overflow:hidden;
+    min-height:260px;
+    display:flex;
+    flex-direction:column;
+    justify-content:flex-end;
+  }
+  .hero-photo{
+    position:absolute; inset:0; width:100%; height:100%;
+    object-fit:cover; z-index:0;
+  }
+  .hero-scrim{
+    position:absolute; inset:0; z-index:1;
+    background:linear-gradient(180deg, rgba(30,20,70,0.15) 0%, rgba(20,14,54,0.55) 55%, rgba(15,10,42,0.82) 100%);
+  }
+  .hero-content{ position:relative; z-index:2; padding:26px 22px 24px; }
+  .hero h2{font-size:22px;line-height:1.35;margin:0 0 16px;font-weight:800;max-width:80%;text-shadow:0 2px 10px rgba(0,0,0,0.25);}
+  .hero-btn{
+    background:#fff;color:var(--primary);border:none;padding:11px 18px;border-radius:12px;
+    font-weight:700;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+    box-shadow:0 6px 18px rgba(0,0,0,0.18);
+  }
+  .utp-strip{
+    display:flex;justify-content:space-between;gap:6px;margin:0 18px 22px;padding:12px 14px;
+    background:var(--card);border:1px solid var(--border);border-radius:14px;
+  }
+  .utp-strip div{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;text-align:center;}
+  .utp-strip span{font-size:10.5px;font-weight:700;color:var(--text-2);line-height:1.25;}
+
+  @media (min-width: 860px){
+    .hero{ min-height:340px; border-radius:24px; margin:0 0 24px; flex-direction:row; align-items:stretch; }
+    .hero-content{
+      width:50%; display:flex; flex-direction:column; justify-content:center;
+      padding:40px; background:linear-gradient(120deg, rgba(28,20,70,0.94) 0%, rgba(28,20,70,0.75) 70%, rgba(28,20,70,0) 100%);
+    }
+    .hero h2{ font-size:30px; max-width:100%; }
+    .hero-scrim{ background:linear-gradient(90deg, rgba(20,14,54,0.35) 0%, rgba(20,14,54,0) 55%); }
+    .hero-photo{ object-position: right center; }
+  }
+
+  .section-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 18px;margin:18px 0 10px;
+  }
+  .section-head h3{font-size:16px;margin:0;font-weight:700;}
+  .link-btn{background:none;border:none;color:var(--primary);font-weight:600;font-size:13px;cursor:pointer;padding:0;}
+
+  .styles-row{display:flex;gap:12px;overflow-x:auto;padding:0 18px 4px;scrollbar-width:none;}
+  .styles-row::-webkit-scrollbar{display:none;}
+  .style-card{flex-shrink:0;width:96px;text-align:center;cursor:pointer;}
+  .style-thumb{
+    width:96px;height:96px;border-radius:16px;margin-bottom:6px;position:relative;overflow:hidden;
+    border:2px solid transparent;
+  }
+  .style-card.selected .style-thumb{border-color:var(--primary);}
+  .style-card span{font-size:12px;color:var(--text-2);font-weight:600;}
+
+  .steps-list{padding:0 18px;margin:0;list-style:none;}
+  .step-item{display:flex;gap:12px;padding:10px 0;align-items:flex-start;}
+  .step-num{
+    width:24px;height:24px;border-radius:50%;background:var(--primary-light);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;
+  }
+  .step-item p{margin:2px 0 0;font-size:14px;color:var(--text);line-height:1.4;}
+
+  /* Bottom nav - truly fixed, never scrolls */
+  .bottom-nav{
+    position:fixed;bottom:0;left:0;right:0;margin:0 auto;
+    width:100%;max-width:480px;background:#fff;border-top:1px solid var(--border);
+    display:flex;justify-content:space-around;
+    padding:8px 4px calc(10px + env(safe-area-inset-bottom));
+    z-index:500;
+  }
+  .nav-item{
+    display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--text-3);
+    cursor:pointer;font-size:10.5px;font-weight:600;flex:1;background:none;border:none;padding:4px 0;
+    transition:color .18s ease, background-color .18s ease;
+  }
+  .nav-item.active{color:var(--accent);}
+  .nav-badge-new{ display:none; }
+  .theme-toggle-row{ display:none; }
+
+  /* Search / catalog */
+  .search-bar{
+    display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);
+    border-radius:12px;padding:11px 14px;margin:0 18px 12px;
+  }
+  .search-bar input{border:none;outline:none;flex:1;font-size:14px;background:transparent;color:var(--text);}
+  .chips-row{display:flex;gap:8px;padding:0 18px 12px;overflow-x:auto;scrollbar-width:none;}
+  .chips-row::-webkit-scrollbar{display:none;}
+  .chip{
+    flex-shrink:0;padding:8px 14px;border-radius:20px;background:var(--card);border:1px solid var(--border);
+    font-size:13px;font-weight:600;cursor:pointer;color:var(--text);white-space:nowrap;
+  }
+  .chip.active{background:var(--text);color:var(--bg);border-color:var(--text);}
+  .filters-row{display:flex;gap:8px;padding:0 18px 14px;overflow-x:auto;scrollbar-width:none;}
+  .filters-row::-webkit-scrollbar{display:none;}
+  .filter-chip{
+    flex-shrink:0;padding:7px 12px;border-radius:10px;background:transparent;border:1px solid var(--border);
+    font-size:12.5px;font-weight:600;color:var(--text-2);cursor:pointer;display:flex;align-items:center;gap:4px;
+  }
+  .product-grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 18px 10px;
+  }
+  .product-card{
+    background:var(--card);border-radius:16px;overflow:hidden;border:1px solid var(--border);
+    cursor:pointer;
+  }
+  .swatch{width:100%;aspect-ratio:0.76;position:relative;background:#f3f1ec;}
+  .swatch img{width:100%;height:100%;object-fit:cover;display:block;}
+  html[data-theme="dark"] .swatch{background:#26262f;}
+  .product-info{padding:10px 12px 12px;}
+  .product-info .pname{font-size:13.5px;font-weight:600;margin:0 0 6px;line-height:1.3;min-height:34px;}
+  .price-row{display:flex;align-items:center;justify-content:space-between;}
+  .price{font-weight:700;font-size:14px;}
+  .cart-fab{
+    width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;border:none;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;
+  }
+  .cart-fab.added{background:#16a34a;}
+  .rating-row{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);margin-top:4px;}
+
+  /* AI Design page (currently shown as "coming soon" — markup kept for future use) */
+  .upload-box{
+    margin:0 18px;height:230px;border-radius:18px;border:2px dashed var(--border);background:var(--card);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;
+    text-align:center;overflow:hidden;position:relative;
+  }
+  .upload-box img{width:100%;height:100%;object-fit:cover;}
+  .upload-box p{margin:0;color:var(--text-2);font-size:13px;line-height:1.5;}
+  .step-label{
+    display:flex;align-items:center;gap:8px;padding:0 18px;margin:20px 0 10px;font-weight:700;font-size:15px;
+  }
+  .step-badge{
+    width:22px;height:22px;border-radius:50%;background:var(--primary);color:#fff;font-size:12px;
+    display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;
+  }
+  .primary-btn{
+    display:block;width:calc(100% - 36px);margin:20px 18px 6px;background:var(--accent);color:#fff;
+    border:none;border-radius:14px;padding:15px;font-size:15px;font-weight:700;cursor:pointer;
+    text-align:center;
+  }
+  .primary-btn:active{background:var(--accent-dark);}
+  .primary-btn.secondary{background:var(--primary);}
+  .primary-btn.outline{background:var(--card);color:var(--text);border:1px solid var(--border);}
+  .primary-btn:disabled{background:#c9c9d1;cursor:not-allowed;}
+
+  .tier-card{
+    display:flex;align-items:center;gap:12px;background:var(--card);border:2px solid var(--border);
+    border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer;
+  }
+  .tier-card.selected{border-color:var(--primary);background:var(--primary-light);}
+  .tier-radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--border);flex-shrink:0;position:relative;}
+  .tier-card.selected .tier-radio{border-color:var(--primary);}
+  .tier-card.selected .tier-radio::after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--primary);}
+  .tier-body{flex:1;}
+  .tier-body p{margin:0;font-weight:700;font-size:14px;}
+  .tier-body span{font-size:12px;color:var(--text-2);}
+  .tier-price{font-weight:800;font-size:14.5px;white-space:nowrap;}
+
+  /* Result page */
+  .result-image{
+    margin:0 18px;height:270px;border-radius:18px;position:relative;overflow:hidden;background:#ccc;
+  }
+  .result-image img{width:100%;height:100%;object-fit:cover;}
+  .result-tint{position:absolute;inset:0;mix-blend-mode:multiply;opacity:0.55;}
+  .style-chip{
+    position:absolute;bottom:12px;left:12px;background:rgba(255,255,255,0.92);padding:6px 12px;
+    border-radius:10px;font-size:12.5px;font-weight:700;
+  }
+  .estimate-list{padding:0 18px;}
+  .estimate-row{
+    display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);
+  }
+  .est-thumb{width:44px;height:44px;border-radius:10px;flex-shrink:0;overflow:hidden;background:#f3f1ec;}
+  .est-thumb img{width:100%;height:100%;object-fit:cover;}
+  .est-name{font-size:13.5px;font-weight:600;margin:0;}
+  .est-qty{font-size:12px;color:var(--text-2);margin:2px 0 0;}
+  .est-price{font-weight:700;font-size:14px;margin-left:auto;white-space:nowrap;}
+  .total-row{
+    display:flex;justify-content:space-between;align-items:center;padding:16px 18px;font-weight:700;font-size:16px;
+  }
+
+  /* Builders (currently shown as "coming soon" — markup kept for future use) */
+  .builder-card{
+    background:var(--card);border:1px solid var(--border);border-radius:16px;margin:0 18px 14px;padding:14px;
+  }
+  .builder-top{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+  .avatar{
+    width:46px;height:46px;border-radius:50%;background:var(--primary-light);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;
+  }
+  .builder-name{font-weight:700;font-size:14.5px;margin:0;}
+  .builder-rating{font-size:12.5px;color:var(--text-2);display:flex;align-items:center;gap:4px;margin-top:2px;}
+  .builder-tag{font-size:12.5px;color:var(--text-2);margin-top:2px;}
+  .portfolio-row{display:flex;gap:8px;margin-bottom:12px;}
+  .portfolio-thumb{width:56px;height:56px;border-radius:10px;flex-shrink:0;}
+  .call-btn{
+    width:100%;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:11px;
+    font-weight:700;font-size:13.5px;cursor:pointer;
+  }
+
+  /* Calendar */
+  .cal-card{background:var(--card);border:1px solid var(--border);border-radius:16px;margin:0 18px 16px;padding:14px;}
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-weight:700;font-size:14px;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;}
+  .cal-dow{font-size:11px;color:var(--text-3);font-weight:600;padding:4px 0;}
+  .cal-day{
+    font-size:13px;padding:8px 0;border-radius:10px;cursor:pointer;font-weight:500;color:var(--text);
+  }
+  .cal-day.muted{color:var(--text-3);}
+  .cal-day.selected{background:var(--accent);color:#fff;font-weight:700;}
+  .cal-day:hover:not(.selected){background:var(--primary-light);}
+  .form-field{margin:0 18px 12px;}
+  .form-field label{display:block;font-size:12.5px;color:var(--text-2);margin-bottom:5px;font-weight:600;}
+  .form-field input, .form-field textarea{
+    width:100%;border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:14px;
+    font-family:inherit;background:var(--card);color:var(--text);outline:none;
+  }
+  .form-field input:focus, .form-field textarea:focus{border-color:var(--primary);}
+
+  /* Profile */
+  .profile-head{display:flex;align-items:center;gap:14px;padding:6px 18px 20px;}
+  .profile-avatar{width:60px;height:60px;border-radius:50%;background:var(--primary);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;flex-shrink:0;}
+  .profile-name{font-weight:700;font-size:17px;margin:0;}
+  .profile-phone{font-size:13px;color:var(--text-2);margin:2px 0 0;}
+  .menu-list{margin:0 18px 18px;background:var(--card);border-radius:16px;border:1px solid var(--border);overflow:hidden;}
+  .menu-row{
+    display:flex;align-items:center;gap:12px;padding:15px 16px;border-bottom:1px solid var(--border);cursor:pointer;
+  }
+  .menu-row:last-child{border-bottom:none;}
+  .menu-row span{flex:1;font-size:14.5px;font-weight:600;}
+  .menu-icon{width:20px;height:20px;color:var(--text-2);flex-shrink:0;}
+
+  .info-card{margin:0 18px 18px;background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;}
+  .info-row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);}
+  .info-row:last-child{border-bottom:none;}
+  .info-row .info-icon{width:18px;height:18px;color:var(--text-2);flex-shrink:0;}
+  .info-row .info-body{flex:1;min-width:0;}
+  .info-row .info-label{font-size:11.5px;color:var(--text-3);font-weight:600;}
+  .info-row .info-value{font-size:14px;font-weight:600;margin-top:2px;word-break:break-word;}
+  .info-row input{border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:14px;width:100%;outline:none;font-family:inherit;}
+  .info-row input:focus{border-color:var(--primary);}
+  .edit-pencil{
+    width:32px;height:32px;border-radius:50%;background:var(--primary-light);color:var(--primary);border:none;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;
+  }
+  .edit-actions{display:flex;gap:6px;}
+  .edit-save, .edit-cancel{
+    width:32px;height:32px;border-radius:50%;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;
+  }
+  .edit-save{background:#16a34a;color:#fff;}
+  .edit-cancel{background:var(--border);color:var(--text-2);}
+
+  /* Orders */
+  .order-card{background:var(--card);border:1px solid var(--border);border-radius:16px;margin:0 18px 16px;padding:16px;}
+  .order-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;}
+  .order-id{font-weight:700;font-size:15px;margin:0;}
+  .order-date{font-size:12px;color:var(--text-2);margin:2px 0 0;}
+  .status-pill{background:var(--primary-light);color:var(--primary);font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;transition:background-color 0.25s ease,color 0.25s ease;}
+  .status-pill.done{background:#dcfce7;color:#16a34a;}
+  html[data-theme="dark"] .status-pill.done{background:#123821;color:#4ade80;}
+  .status-pill.cancelled{background:#fee2e2;color:#991b1b;}
+  html[data-theme="dark"] .status-pill.cancelled{background:#3a1414;color:#f87171;}
+  .tracker{display:flex;align-items:flex-start;margin-bottom:16px;}
+  .track-step{flex:1;text-align:center;position:relative;}
+  .track-dot{
+    width:14px;height:14px;border-radius:50%;background:var(--border);margin:0 auto 6px;position:relative;z-index:2;
+    transition:background-color 0.3s ease;
+  }
+  .track-step.done .track-dot{background:var(--primary);}
+  .track-step .track-line{
+    position:absolute;top:6px;left:-50%;width:100%;height:2px;background:var(--border);z-index:1;
+    transition:background-color 0.3s ease;
+  }
+  .track-step.done .track-line{background:var(--primary);}
+  .track-step:first-child .track-line{display:none;}
+  .track-label{font-size:10.5px;color:var(--text-2);font-weight:600;line-height:1.3;}
+  .order-thumbs{display:flex;gap:8px;margin-bottom:12px;}
+  .order-thumb{width:64px;height:64px;border-radius:10px;flex-shrink:0;overflow:hidden;background:#f3f1ec;}
+  .order-thumb img{width:100%;height:100%;object-fit:cover;}
+  .order-total{display:flex;justify-content:space-between;font-weight:700;font-size:15px;margin-bottom:6px;}
+  .detail-link{background:none;border:none;color:var(--primary);font-weight:600;font-size:13.5px;padding:0;cursor:pointer;
+    display:flex;align-items:center;gap:4px;width:100%;justify-content:center;padding-top:6px;}
+  .cancel-link{background:none;border:none;color:#dc2626;font-weight:600;font-size:13.5px;padding:0;cursor:pointer;
+    display:flex;align-items:center;gap:4px;width:100%;justify-content:center;padding-top:6px;}
+  html[data-theme="dark"] .cancel-link{color:#f87171;}
+  .order-actions-row{display:flex;gap:8px;margin-top:4px;}
+  .empty-state{text-align:center;padding:60px 30px;color:var(--text-2);}
+  .empty-state svg{margin:0 auto 14px;opacity:0.5;}
+
+  /* Product detail page */
+  .product-hero{margin:0 18px;width:calc(100% - 36px);aspect-ratio:0.76;border-radius:18px;overflow:hidden;background:#f3f1ec;position:relative;}
+  .product-hero img{width:100%;height:100%;object-fit:cover;}
+  html[data-theme="dark"] .product-hero{background:#26262f;}
+  .product-cat{font-size:12.5px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:0.03em;}
+  .product-title{font-size:19px;font-weight:700;margin:6px 0 10px;line-height:1.3;}
+  .product-meta-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+  .product-price-big{font-size:20px;font-weight:800;}
+  .product-desc{padding:0 18px;font-size:14px;color:var(--text-2);line-height:1.6;margin:0;}
+  .specs-card{margin:0 18px;background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;}
+  .spec-row{display:flex;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-size:13.5px;gap:10px;}
+  .spec-row:last-child{border-bottom:none;}
+  .spec-row .spec-label{color:var(--text-2);}
+  .spec-row .spec-value{font-weight:600;text-align:right;}
+  .related-card{flex-shrink:0;width:110px;cursor:pointer;text-align:left;}
+  .related-thumb{width:110px;height:80px;border-radius:12px;overflow:hidden;margin-bottom:6px;background:#f3f1ec;}
+  .related-thumb img{width:100%;height:100%;object-fit:cover;}
+  .related-card .rname{font-size:12px;font-weight:600;line-height:1.3;margin:0 0 3px;}
+  .related-card .rprice{font-size:12.5px;font-weight:700;color:var(--text);}
+  .qty-bar{
+    position:sticky; bottom:78px; display:flex;align-items:center;gap:12px;
+    padding:14px 18px;background:var(--bg);
+    border-top:1px solid var(--border); margin-top:18px; box-shadow:0 -4px 12px rgba(0,0,0,0.04);
+  }
+  .qty-control{display:flex;align-items:center;gap:0;background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;flex-shrink:0;}
+  .qty-btn{width:36px;height:42px;border:none;background:var(--card);font-size:18px;font-weight:700;color:var(--text);cursor:pointer;}
+  .qty-btn:active{background:var(--primary-light);}
+  #qtyValue{width:30px;text-align:center;font-weight:700;font-size:14px;}
+
+  .reviews-entry{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    margin:16px 18px 0;background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:14px 16px;cursor:pointer;
+  }
+  .reviews-entry-left p{margin:0 0 4px;font-weight:700;font-size:14px;}
+  .reviews-summary{
+    display:flex;align-items:center;gap:16px;margin:0 18px 18px;background:var(--card);
+    border:1px solid var(--border);border-radius:16px;padding:18px;
+  }
+  .reviews-summary .big-rating{font-size:34px;font-weight:800;line-height:1;}
+  .reviews-summary .stars{color:var(--star);font-size:15px;margin:6px 0 4px;}
+  .reviews-summary .count{font-size:12.5px;color:var(--text-2);}
+  .review-card{
+    margin:0 18px 14px;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px 16px;
+  }
+  .review-top{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  .review-avatar{
+    width:38px;height:38px;border-radius:50%;background:var(--primary-light);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;
+  }
+  .review-name{font-weight:700;font-size:13.5px;margin:0;}
+  .review-date{font-size:11.5px;color:var(--text-3);margin-top:1px;}
+  .review-stars{color:var(--star);font-size:12.5px;margin-left:auto;white-space:nowrap;}
+  .review-text{font-size:13.5px;color:var(--text);line-height:1.5;margin:0;}
+
+  /* Support */
+  .chat-entry{
+    display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);
+    border-radius:16px;margin:0 18px 18px;padding:16px;
+  }
+  .chat-entry .avatar{background:#fde7dd;color:var(--accent);}
+  .chat-entry p{margin:2px 0 0;font-size:12.5px;color:var(--text-2);line-height:1.4;}
+  .faq-list{margin:0 18px;background:var(--card);border-radius:16px;border:1px solid var(--border);overflow:hidden;}
+  .faq-row{padding:15px 16px;border-bottom:1px solid var(--border);cursor:pointer;}
+  .faq-row:last-child{border-bottom:none;}
+  .faq-q{display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:600;}
+  .faq-a{font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.5;display:none;}
+  .faq-row.open .faq-a{display:block;}
+  .faq-row.open .faq-chevron{transform:rotate(90deg);}
+  .call-support{
+    display:flex;align-items:center;gap:10px;margin:18px 18px 0;color:var(--primary);font-weight:700;font-size:14px;cursor:pointer;
+  }
+
+  /* Chat window */
+  .chat-window{padding:0 18px;display:flex;flex-direction:column;min-height:420px;}
+  .chat-messages{flex:1;display:flex;flex-direction:column;gap:10px;padding:10px 0;}
+  .msg{max-width:78%;padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.4;}
+  .msg.bot{background:var(--card);border:1px solid var(--border);align-self:flex-start;border-bottom-left-radius:4px;}
+  .msg.user{background:var(--primary);color:#fff;align-self:flex-end;border-bottom-right-radius:4px;}
+  .chat-input-row{
+    display:flex;gap:8px;padding:10px 0 4px;position:sticky;bottom:80px;background:var(--bg);
+  }
+  .chat-input-row input{
+    flex:1;border:1px solid var(--border);border-radius:20px;padding:11px 16px;font-size:14px;outline:none;
+  }
+  .send-btn{
+    width:42px;height:42px;border-radius:50%;background:var(--primary);border:none;color:#fff;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;
+  }
+
+  /* Auth */
+  .auth-tabs{display:flex;gap:8px;margin:0 18px 18px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:4px;}
+  .auth-tab{flex:1;text-align:center;padding:10px;border-radius:11px;font-weight:700;font-size:13.5px;cursor:pointer;color:var(--text-2);}
+  .auth-tab.active{background:var(--primary);color:#fff;}
+  .auth-hero{padding:14px 18px 4px;text-align:center;}
+  .auth-hero .auth-icon{width:64px;height:64px;border-radius:50%;background:var(--primary-light);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
+  .auth-hero h2{font-size:18px;margin:0 0 6px;}
+  .auth-hero p{font-size:13px;color:var(--text-2);margin:0 0 6px;line-height:1.5;}
+
+  .method-btn{
+    display:flex;align-items:center;gap:12px;width:calc(100% - 36px);margin:0 18px 10px;
+    background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;cursor:pointer;text-align:left;
+    color:var(--text); /* кнопки не наследуют цвет текста страницы сами по себе — без этой строки текст оставался тёмным в тёмной теме */
+  }
+  .method-icon{width:40px;height:40px;border-radius:12px;background:var(--primary-light);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .method-body{flex:1;}
+  .method-body p{margin:0;font-size:14px;font-weight:700;color:var(--text);}
+  .method-body span{font-size:12px;color:var(--text-2);}
+
+  .cart-row{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);align-items:center;}
+  .cart-thumb{width:60px;height:60px;border-radius:12px;overflow:hidden;flex-shrink:0;background:#f3f1ec;}
+  .cart-thumb img{width:100%;height:100%;object-fit:cover;}
+  .cart-info{flex:1;min-width:0;}
+  .cart-info .cname{font-size:13.5px;font-weight:600;margin:0 0 4px;line-height:1.3;}
+  .cart-info .cunit{font-size:12px;color:var(--text-2);}
+  .cart-qty{display:flex;align-items:center;background:var(--bg);border-radius:10px;overflow:hidden;flex-shrink:0;}
+  .cart-qty button{width:26px;height:26px;border:none;background:transparent;font-weight:700;font-size:14px;cursor:pointer;color:var(--text);}
+  .cart-qty span{width:20px;text-align:center;font-size:13px;font-weight:700;}
+  .cart-qty-input{width:30px;text-align:center;font-size:13px;font-weight:700;color:var(--text);background:transparent;border:none;outline:none;padding:0;-moz-appearance:textfield;}
+  .cart-qty-input::-webkit-outer-spin-button,.cart-qty-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .cart-remove{width:28px;height:28px;border:none;background:none;color:var(--text-3);cursor:pointer;flex-shrink:0;}
+  .cart-line-total{font-weight:700;font-size:13px;margin-top:6px;text-align:right;}
+  .mode-toggle-btn{color:var(--text);background:var(--card);transition:background-color 0.2s ease,color 0.2s ease,border-color 0.2s ease;}
+  .mode-toggle-btn.active{background:var(--accent, #1a1a1a);color:#fff;border-color:var(--accent, #1a1a1a);}
+  @keyframes priceFlash{0%{background-color:rgba(255,138,92,0.38);}100%{background-color:transparent;}}
+  .price-flash{animation:priceFlash 0.7s ease;border-radius:6px;}
+  /* ---- Точечный индикатор загрузки (12 точек по кругу, поочерёдно гаснут) ---- */
+  .dot-spinner{position:relative;width:48px;height:48px;margin:0 auto;}
+  .dot-spinner i{
+    position:absolute;top:0;left:0;width:100%;height:100%;
+  }
+  .dot-spinner i::before{
+    content:'';position:absolute;top:0;left:calc(50% - 4px);width:8px;height:8px;border-radius:50%;
+    background:var(--accent,#ff8a5c);animation:dotFade 1s linear infinite;
+  }
+  .dot-spinner i:nth-child(1){transform:rotate(0deg);}
+  .dot-spinner i:nth-child(2){transform:rotate(30deg);}
+  .dot-spinner i:nth-child(3){transform:rotate(60deg);}
+  .dot-spinner i:nth-child(4){transform:rotate(90deg);}
+  .dot-spinner i:nth-child(5){transform:rotate(120deg);}
+  .dot-spinner i:nth-child(6){transform:rotate(150deg);}
+  .dot-spinner i:nth-child(7){transform:rotate(180deg);}
+  .dot-spinner i:nth-child(8){transform:rotate(210deg);}
+  .dot-spinner i:nth-child(9){transform:rotate(240deg);}
+  .dot-spinner i:nth-child(10){transform:rotate(270deg);}
+  .dot-spinner i:nth-child(11){transform:rotate(300deg);}
+  .dot-spinner i:nth-child(12){transform:rotate(330deg);}
+  .dot-spinner i:nth-child(1)::before{animation-delay:-1.0833s;}
+  .dot-spinner i:nth-child(2)::before{animation-delay:-0.9166s;}
+  .dot-spinner i:nth-child(3)::before{animation-delay:-0.75s;}
+  .dot-spinner i:nth-child(4)::before{animation-delay:-0.5833s;}
+  .dot-spinner i:nth-child(5)::before{animation-delay:-0.4166s;}
+  .dot-spinner i:nth-child(6)::before{animation-delay:-0.25s;}
+  .dot-spinner i:nth-child(7)::before{animation-delay:-0.0833s;}
+  .dot-spinner i:nth-child(8)::before{animation-delay:-0.9166s;}
+  .dot-spinner i:nth-child(9)::before{animation-delay:-0.75s;}
+  .dot-spinner i:nth-child(10)::before{animation-delay:-0.5833s;}
+  .dot-spinner i:nth-child(11)::before{animation-delay:-0.4166s;}
+  .dot-spinner i:nth-child(12)::before{animation-delay:-0.25s;}
+  @keyframes dotFade{0%{opacity:1;}100%{opacity:0.15;}}
+  .loading-block{display:flex;align-items:center;justify-content:center;padding:60px 0;width:100%;}
+  /* ---- Страница «Оформить заказ» ---- */
+  .checkout-wait{display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;padding:36px 20px;}
+  .checkout-spinner{width:34px;height:34px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent,#1a1a1a);animation:checkout-spin 0.9s linear infinite;}
+  @keyframes checkout-spin{to{transform:rotate(360deg);}}
+  .time-toggle{display:flex;gap:8px;margin:4px 0 2px;}
+  .time-toggle-btn{flex:1;padding:9px 10px;border-radius:10px;border:1.5px solid var(--border);background:var(--card);color:var(--text);font-weight:600;font-size:13px;cursor:pointer;}
+  .time-toggle-btn.active{background:var(--accent,#1a1a1a);color:#fff;border-color:var(--accent,#1a1a1a);}
+  .upload-box{border:1.5px dashed var(--border);border-radius:12px;padding:14px;text-align:center;cursor:pointer;font-size:13px;color:var(--text-2);}
+  .upload-box img{max-width:100%;max-height:160px;border-radius:8px;margin-top:8px;}
+  .pickup-info-card{background:var(--bg);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.5;}
+  /* ---- Модалка «Подробнее о заказе» ---- */
+  .order-detail-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:flex-end;justify-content:center;z-index:500;opacity:0;pointer-events:none;transition:opacity 0.2s;}
+  .order-detail-overlay.open{opacity:1;pointer-events:auto;}
+  .order-detail-modal{background:var(--card);width:100%;max-width:480px;max-height:88vh;overflow-y:auto;border-radius:20px 20px 0 0;padding:20px;transform:translateY(16px);transition:transform 0.2s;}
+  .order-detail-overlay.open .order-detail-modal{transform:translateY(0);}
+  @media (min-width:600px){
+    .order-detail-overlay{align-items:center;}
+    .order-detail-modal{border-radius:20px;max-height:80vh;}
+  }
+  .order-detail-modal .close-row{display:flex;justify-content:flex-end;margin-bottom:4px;}
+  .order-detail-modal .close-row .icon-btn{cursor:pointer;}
+  .od-section{margin-bottom:16px;}
+  .od-section h3{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-3);margin:0 0 8px;}
+  .od-kv{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;font-size:13.5px;}
+  .od-kv div:nth-child(odd){color:var(--text-2);}
+  .od-item-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);}
+  .od-item-row:last-child{border-bottom:none;}
+  .od-item-row .od-thumb{width:38px;height:38px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--bg);}
+  .od-item-row .od-info{flex:1;font-size:13px;}
+  .od-item-row .od-info span{display:block;color:var(--text-2);font-size:11.5px;}
+  .pay-btn{display:inline-block;text-align:center;padding:10px 14px;border-radius:10px;background:#16a34a;color:#fff;font-weight:700;font-size:13.5px;text-decoration:none;}
+  .payment-pill{display:inline-block;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:700;transition:background-color 0.25s ease,color 0.25s ease;}
+  .payment-pill.awaiting{background:#fef3c7;color:#92400e;}
+  .payment-pill.paid{background:#dcfce7;color:#166534;}
+  .payment-pill.problem{background:#fee2e2;color:#991b1b;}
+  html[data-theme="dark"] .payment-pill.awaiting{background:#3a2f14;color:#f0b429;}
+  html[data-theme="dark"] .payment-pill.paid{background:#123821;color:#4ade80;}
+  html[data-theme="dark"] .payment-pill.problem{background:#3a1414;color:#f87171;}
+
+  /* Notifications */
+  .notif-row{display:flex;gap:12px;padding:15px 16px;border-bottom:1px solid var(--border);position:relative;}
+  .notif-row:last-child{border-bottom:none;}
+  .notif-row.unread{background:#f7f6ff;}
+  .notif-icon{width:38px;height:38px;border-radius:50%;background:var(--primary-light);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .notif-title{font-size:13.5px;font-weight:700;margin:0;}
+  .notif-text{font-size:12.5px;color:var(--text-2);margin:3px 0 0;line-height:1.4;}
+  .notif-time{font-size:11px;color:var(--text-3);margin-top:5px;font-weight:600;}
+  .notif-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);position:absolute;top:16px;right:14px;}
+  .mark-all-btn{
+    background:var(--primary-light);color:var(--primary);border:none;border-radius:10px;padding:8px 12px;
+    font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap;
+  }
+
+  .toast{
+    position:fixed;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:#1a1a1a;color:#fff;padding:12px 20px;border-radius:12px;font-size:13.5px;font-weight:600;
+    opacity:0;pointer-events:none;transition:all .3s ease;z-index:600;max-width:400px;text-align:center;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  ::-webkit-scrollbar{width:0;height:0;}
+
+  /* ===================== RESPONSIVE / DESKTOP ===================== */
+  /* Mobile-first shell above; from tablet width up we widen the shell,
+     switch to a left sidebar instead of the bottom tab bar, and let the
+     catalog/cart grids breathe with more columns. */
+  @media (min-width: 860px){
+    body{ background:#eceef3; }
+    .app-wrap{
+      max-width:1280px;
+      min-height:100vh;
+      box-shadow:none;
+      background:transparent;
+      display:grid;
+      grid-template-columns:220px 1fr;
+      grid-template-rows:auto 1fr;
+      column-gap:24px;
+      padding:24px 24px 0;
+    }
+    /* Sidebar nav replaces the bottom bar on desktop */
+    .bottom-nav{
+      position:sticky; top:24px; left:0;
+      grid-row:1 / span 2; grid-column:1;
+      width:220px; max-width:220px; height:fit-content;
+      flex-direction:column; justify-content:flex-start; gap:20px;
+      border-top:none; border-radius:18px; padding:22px 14px;
+      background:var(--card); border:1px solid var(--border);
+      box-shadow:0 2px 10px rgba(20,20,40,0.04);
+    }
+    .nav-item{
+      flex:0 0 auto;
+      flex-direction:row; justify-content:flex-start; gap:12px;
+      font-size:14px; padding:9px 10px; border-radius:10px;
+    }
+    .nav-item svg{ width:19px; height:19px; flex-shrink:0; }
+    .nav-item.active{ background:var(--primary-light); color:var(--primary); }
+    .nav-item:not(.active):hover{ background:var(--bg); }
+    .nav-badge-new{ display:inline-block; }
+    .theme-toggle-row{ display:flex; }
+    .nav-badge-new{
+      background:var(--blue); color:#fff; font-size:9.5px; font-weight:800;
+      letter-spacing:0.03em; padding:2px 6px; border-radius:6px; margin-left:auto;
+    }
+    .theme-toggle-row{
+      display:flex; align-items:center; gap:10px; margin-top:6px; padding-top:18px;
+      border-top:1px solid var(--border);
+    }
+    .theme-switch{
+      display:flex; align-items:center; background:var(--bg); border-radius:20px;
+      padding:3px; gap:2px; flex-shrink:0;
+    }
+    .theme-switch button{
+      width:26px; height:26px; border-radius:50%; border:none; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; background:transparent; color:var(--text-2);
+    }
+    .theme-switch button.active{ background:var(--card); color:var(--accent); box-shadow:0 1px 4px rgba(0,0,0,0.12); }
+    .theme-toggle-row span{ font-size:13px; font-weight:600; color:var(--text-2); }
+
+    .page{
+      grid-column:2; grid-row:1 / span 2;
+      padding-bottom:40px;
+      max-width:900px;
+    }
+    .toast{ max-width:420px; }
+
+    /* Wider grids now that we have room */
+    .product-grid{ grid-template-columns:repeat(3,1fr); gap:16px; }
+    .styles-row, .chips-row, .filters-row{ flex-wrap:wrap; overflow:visible; }
+    .qty-bar{ position:static; margin-top:18px; box-shadow:none; }
+    .chat-input-row, .chat-window > .chat-input-row{ position:static; }
+
+    /* Two-column split for pages that benefit from it */
+    .page[data-page="product"] .product-hero{ margin-left:0; }
+    .page[data-page="cart"] #cartList, .page[data-page="orders"] #ordersList{ max-width:620px; }
+    /* Пока список пуст и показывается спиннер загрузки — снимаем узкое
+       ограничение ширины, иначе центрированный спиннер визуально уезжает
+       влево (контейнер 620px прижат к левому краю страницы шириной 900px). */
+    .page[data-page="cart"] #cartList.is-loading, .page[data-page="orders"] #ordersList.is-loading{ max-width:none; }
+  }
+  @media (min-width: 1180px){
+    .app-wrap{ max-width:1440px; grid-template-columns:240px 1fr; }
+    .page{ max-width:1000px; }
+    .product-grid{ grid-template-columns:repeat(4,1fr); }
+  }
+
+  @media print{
+    body{background:#fff;}
+    .app-wrap{box-shadow:none;max-width:100%;}
+    .bottom-nav, .back-row .icon-btn, #toast, .no-print{display:none !important;}
+    .page{display:none !important;padding-bottom:0 !important;}
+    .page[data-page="orders"]{display:block !important;}
+    .back-row h1{font-size:22px;}
+  }
+</style>
+</head>
+<body>
+<div class="app-wrap" id="appWrap">
+
+  <!-- ================= HOME ================= -->
+  <div class="page active" data-page="home">
+    <div class="topbar">
+      <button class="loc" onclick="toggleCityDropdown()">
+        <span class="pin">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 1118 0z"/><circle cx="12" cy="10" r="2.7"/></svg>
+        </span>
+        <span id="cityLabel">Ташкент</span>
+        <span class="chev">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+        </span>
+      </button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="usdRatePill" style="display:none;font-size:12px;font-weight:700;color:var(--text-2);background:var(--card);border:1px solid var(--border);border-radius:20px;padding:6px 12px;white-space:nowrap;">💵 <span id="usdRateValue">—</span></span>
+        <div class="icon-btn" onclick="goTab('notifications')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+          <div class="badge-dot" id="bellDot" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="city-dropdown" id="cityDropdown">
+      <div class="city-note" data-i18n="city_zone_label">Зона доставки: Ташкент и область</div>
+      <div id="cityOptions"></div>
+    </div>
+
+    <div class="hero">
+      <img class="hero-photo" src="/media/hero.jpg" alt="Уютный интерьер после ремонта">
+      <div class="hero-scrim"></div>
+      <div class="hero-content">
+        <h2 data-i18n="hero_title">Точный расчёт материалов без переплат — от 29 000 сум</h2>
+        <button class="hero-btn" data-i18n="hero_btn" onclick="goTab('ai-design')">Рассчитать →</button>
+      </div>
+    </div>
+    <div class="utp-strip">
+      <div>💰 <span data-i18n="utp_price">Цены ближе к оптовым</span></div>
+      <div>🚚 <span data-i18n="utp_delivery">Доставка по Ташкенту и области</span></div>
+      <div>📐 <span data-i18n="utp_calc">Считаем точно — без лишнего</span></div>
+    </div>
+
+    <div class="section-head"><h3 data-i18n="popular_styles">Популярные стили</h3></div>
+    <div class="styles-row" id="homeStylesRow"></div>
+
+    <div class="section-head"><h3 data-i18n="how_it_works">Как это работает</h3></div>
+    <ol class="steps-list">
+      <li class="step-item"><div class="step-num">1</div><p data-i18n="step1">Выберите нужные материалы в каталоге</p></li>
+      <li class="step-item"><div class="step-num">2</div><p data-i18n="step2">Добавьте в корзину и оформите заказ</p></li>
+      <li class="step-item"><div class="step-num">3</div><p data-i18n="step3">Мы привезём всё по Ташкенту и области</p></li>
+      <li class="step-item"><div class="step-num">4</div><p data-i18n="step4">Следите за статусом в разделе «Мои заказы»</p></li>
+    </ol>
+  </div>
+
+  <!-- ================= CATALOG ================= -->
+  <div class="page" data-page="catalog">
+    <div class="topbar">
+      <h1 data-i18n="search_catalog">Поиск и каталог</h1>
+      <div class="icon-btn" onclick="goTab('cart')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>
+        <div class="badge-dot" id="cartDotCatalog" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="search-bar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="catalogSearch" placeholder="Поиск товаров..." oninput="onCatalogSearchInput()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4"/></svg>
+    </div>
+    <div class="chips-row" id="catalogChips"></div>
+    <div class="product-grid" id="productGrid"></div>
+  </div>
+
+  <!-- ================= PRODUCT DETAIL (sub-page under catalog) ================= -->
+  <div class="page" data-page="product">
+    <div class="back-row"><div class="icon-btn" onclick="goTab('catalog')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div><h1 data-i18n="about_product">О товаре</h1>
+      <div class="icon-btn" onclick="goTab('cart')">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>
+        <div class="badge-dot" id="cartDotProduct" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="product-hero" id="productHero"></div>
+    <div style="padding:16px 18px 0;">
+      <div class="product-cat" id="productCat"></div>
+      <h2 class="product-title" id="productTitle"></h2>
+      <div class="product-meta-row">
+        <div class="rating-row" id="productRatingRow" style="font-size:13.5px;"></div>
+        <span class="product-price-big" id="productPriceBig"></span>
+      </div>
+    </div>
+
+    <div class="section-head"><h3>Описание</h3></div>
+    <p class="product-desc" id="productDesc"></p>
+
+    <div class="section-head"><h3>Характеристики</h3></div>
+    <div class="specs-card" id="productSpecs"></div>
+
+    <div class="reviews-entry" id="reviewsEntry" onclick="goTab('reviews')">
+      <div class="reviews-entry-left">
+        <p>Отзывы покупателей</p>
+        <div class="rating-row" id="reviewsEntryRating"></div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+    </div>
+
+    <div class="section-head"><h3>Похожие товары</h3></div>
+    <div class="styles-row" id="relatedRow" style="padding-bottom:10px;"></div>
+
+    <div class="qty-bar">
+      <div class="qty-control">
+        <button class="qty-btn" onclick="changeQty(-1)">−</button>
+        <span id="qtyValue">1</span>
+        <button class="qty-btn" onclick="changeQty(1)">+</button>
+      </div>
+      <button class="primary-btn" style="margin:0;flex:1;" id="addToCartDetailBtn" onclick="addToCartFromDetail()">Добавить в корзину</button>
+    </div>
+  </div>
+
+  <!-- ================= REVIEWS (sub-page under product) ================= -->
+  <div class="page" data-page="reviews">
+    <div class="back-row"><div class="icon-btn" onclick="goTab('product')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div><h1 data-i18n="reviews">Отзывы</h1></div>
+    <div class="reviews-summary" id="reviewsSummary"></div>
+    <div id="reviewsList"></div>
+  </div>
+
+  <!-- ================= AI DESIGN (kept in markup, backend supports it, hidden behind "coming soon" for this MVP) ================= -->
+  <div class="page" data-page="ai-design">
+    <div id="aiStepView">
+      <div class="topbar"><h1 data-i18n="ai_design_soon">ИИ-Дизайн (скоро)</h1></div>
+      <div class="step-label"><div class="step-badge">1</div>Загрузите фото комнаты</div>
+      <div class="upload-box" id="uploadBox">
+        <div id="uploadPlaceholder">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="1.6"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="13.5" r="3.5"/></svg>
+          <p style="margin-top:10px;">Раздел скоро будет доступен</p>
+        </div>
+      </div>
+      <div class="step-label"><div class="step-badge">2</div>Выберите стиль</div>
+      <div class="styles-row" id="aiStylesRow"></div>
+    </div>
+  </div>
+
+  <!-- ================= RESULT (sub-page under ai-design, reserved for future use) ================= -->
+  <div class="page" data-page="result">
+    <div class="back-row"><div class="icon-btn" onclick="goTab('ai-design')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div><h1 data-i18n="design_result">Результат дизайна</h1></div>
+    <div class="estimate-list" id="estimateList"></div>
+  </div>
+
+  <!-- ================= BUILDERS (kept in markup, backend supports it, hidden behind "coming soon" for this MVP) ================= -->
+  <div class="page" data-page="builders">
+    <div id="buildersListView">
+      <div class="topbar"><h1 data-i18n="builders_market">Биржа строителей</h1></div>
+      <div id="buildersList"></div>
+    </div>
+  </div>
+
+  <!-- ================= BOOKING (sub-page under builders, reserved for future use) ================= -->
+  <div class="page" data-page="booking">
+    <div class="back-row"><div class="icon-btn" onclick="goTab('builders')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div><h1 data-i18n="builders_request">Заявка на бригаду</h1></div>
+  </div>
+
+  <!-- ================= PROFILE ================= -->
+  <div class="page" data-page="profile">
+    <div class="topbar"><h1 data-i18n="profile_title">Профиль</h1></div>
+
+    <!-- Auth (shown when logged out) -->
+    <div id="authView">
+      <div class="auth-hero">
+        <div class="auth-icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <h2 data-i18n="auth_hero_title">Войдите в аккаунт</h2>
+        <p data-i18n="auth_hero_text">Чтобы оформлять заказы и видеть историю покупок, войдите по email или телефону — код придёт вам, ничего придумывать не нужно.</p>
+      </div>
+      <div class="auth-tabs">
+        <div class="auth-tab active" id="tabLogin" data-i18n="auth_tab_login" onclick="setAuthTab('login')">Вход</div>
+        <div class="auth-tab" id="tabRegister" data-i18n="auth_tab_register" onclick="setAuthTab('register')">Регистрация</div>
+      </div>
+
+      <!-- LOGIN: choose method -->
+      <div id="loginForm">
+        <p data-i18n="auth_choose_method" style="padding:0 18px;font-size:13px;color:var(--text-2);margin:0 0 12px;">Выберите, как вы хотите войти</p>
+        <button class="method-btn" onclick="goToLoginMethod('email')">
+          <div class="method-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg></div>
+          <div class="method-body"><p data-i18n="method_email_title">Войти по email</p><span data-i18n="method_email_sub">Код придёт на почту</span></div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+        <button class="method-btn" onclick="goToLoginMethod('phone')">
+          <div class="method-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
+          <div class="method-body"><p data-i18n="method_phone_title">Войти по телефону</p><span data-i18n="method_phone_sub">Код придёт в SMS</span></div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      </div>
+
+      <!-- REGISTER: collects name + email + phone; the account itself is created by the OTP step -->
+      <div id="registerForm" style="display:none;">
+        <p data-i18n="register_intro" style="padding:0 18px;font-size:13px;color:var(--text-2);margin:0 0 12px;">Заполните данные, затем подтвердите вход по email или телефону — мы всё сохраним.</p>
+        <div class="form-field"><label data-i18n="reg_first_name_label">Имя</label><input id="regFirstName" data-i18n-placeholder="reg_first_name_ph" placeholder="Иван"></div>
+        <div class="form-field"><label data-i18n="reg_last_name_label">Фамилия <span style="font-weight:400;color:var(--text-3);" data-i18n="reg_last_name_optional">(необязательно)</span></label><input id="regLastName" data-i18n-placeholder="reg_last_name_ph" placeholder="Иванов"></div>
+        <div class="form-field"><label data-i18n="reg_email_label">Email</label><input id="regEmail" type="email" placeholder="ivan@example.com"></div>
+        <div class="form-field"><label data-i18n="reg_phone_label">Телефон</label><input id="regPhone" placeholder="+998901234567"></div>
+        <button class="primary-btn secondary" data-i18n="reg_submit" onclick="doRegister()">Зарегистрироваться</button>
+      </div>
+    </div>
+
+
+    <!-- Profile (shown when logged in) -->
+    <div id="profileView" style="display:none;">
+      <div class="profile-head">
+        <div class="profile-avatar" id="profileInitials">ИИ</div>
+        <div><p class="profile-name" id="profileNameLabel">Иван Иванов</p><p class="profile-phone" data-i18n="profile_subtitle">Личный кабинет</p></div>
+      </div>
+
+      <div class="info-card">
+        <div class="info-row" id="phoneRow"></div>
+        <div class="info-row" id="emailRow"></div>
+        <div class="info-row" id="addressRow"></div>
+      </div>
+
+      <div class="menu-list">
+        <div class="menu-row" onclick="goTab('orders')">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2l1 5h10l1-5"/><rect x="4" y="7" width="16" height="14" rx="2"/></svg>
+          <span data-i18n="orders_title">Мои заказы</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="menu-row" onclick="goTab('notifications')">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+          <span data-i18n="menu_notifications">Уведомления</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="menu-row" onclick="goTab('support')">
+          <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+          <span data-i18n="menu_support">Поддержка</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+      </div>
+
+      <div style="padding:0 18px;">
+        <button class="primary-btn outline" style="width:100%;margin:0;" data-i18n="logout_btn" onclick="doLogout()">Выйти из аккаунта</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= LOGIN: EMAIL PAGE ================= -->
+  <div class="page" data-page="login-email">
+    <div class="back-row"><div class="icon-btn" onclick="goTab('profile')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div><h1 data-i18n="login_email">Вход по email</h1></div>
+    <div class="auth-hero">
+      <div class="auth-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg></div>
+      <p>Введите email — мы отправим на него одноразовый код для входа</p>
+    </div>
+    <div class="form-field"><label>Email</label><input id="loginEmailInput" type="email" placeholder="ivan@example.com"></div>
+    <button class="primary-btn secondary" onclick="sendOtp('email')">Получить код</button>
+  </div>
+
+  <!-- ================= LOGIN: PHONE PAGE ================= -->
+  <div class="page" data-page="login-phone">
+    <div class="back-row"><div class="icon-btn" onclick="goTab('profile')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div><h1 data-i18n="login_phone">Вход по телефону</h1></div>
+    <div class="auth-hero">
+      <div class="auth-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
+      <p>Введите номер телефона — мы отправим на него SMS с кодом</p>
+    </div>
+    <div class="form-field"><label>Телефон</label><input id="loginPhoneInput" placeholder="+998901234567"></div>
+    <button class="primary-btn secondary" onclick="sendOtp('phone')">Получить код</button>
+  </div>
+
+  <!-- ================= OTP PAGE ================= -->
+  <div class="page" data-page="otp">
+    <div class="back-row"><div class="icon-btn" onclick="goTab(state.loginMethod==='email'?'login-email':'login-phone')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div><h1 data-i18n="confirm_title">Подтверждение</h1></div>
+    <div class="auth-hero">
+      <div class="auth-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
+      <p>Мы отправили код подтверждения на<br><strong id="otpContactLabel" style="color:var(--text);"></strong></p>
+    </div>
+    <div class="form-field">
+      <label>Код из 6 цифр</label>
+      <input id="otpInput" inputmode="numeric" maxlength="6" placeholder="••••••" style="letter-spacing:6px;font-size:18px;text-align:center;font-weight:700;">
+    </div>
+    <p id="otpError" style="display:none;color:var(--accent-dark);font-size:12.5px;padding:0 18px;margin:-6px 0 12px;">Неверный код. Попробуйте ещё раз.</p>
+    <p style="padding:0 18px;font-size:11.5px;color:var(--text-3);margin:-4px 0 14px;">Не пришёл код? Проверьте папку «Спам» или подождите немного.</p>
+    <button class="primary-btn secondary" onclick="verifyOtp()">Подтвердить и войти</button>
+    <div style="padding:14px 18px 0;text-align:center;">
+      <button id="resendBtn" class="link-btn" style="font-size:13.5px;" onclick="resendOtp()" disabled>Отправить код повторно (<span id="otpTimerLabel">60</span>с)</button>
+    </div>
+  </div>
+
+  <!-- ================= CART ================= -->
+  <div class="page" data-page="cart">
+    <div class="back-row">
+      <div class="icon-btn" onclick="goTab(state.previousMainTab||'catalog')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div>
+      <h1 data-i18n="cart_title">Корзина</h1>
+    </div>
+    <div class="mode-toggle" id="cartModeToggle" style="display:flex;gap:8px;margin:0 16px 4px;">
+      <button type="button" class="mode-toggle-btn" data-mode="delivery" onclick="setCartMode('delivery')" data-i18n="mode_delivery"
+        style="flex:1;padding:10px 12px;border-radius:12px;border:1.5px solid var(--border);font-weight:700;font-size:13.5px;cursor:pointer;">Доставка</button>
+      <button type="button" class="mode-toggle-btn" data-mode="pickup" onclick="setCartMode('pickup')" data-i18n="mode_pickup"
+        style="flex:1;padding:10px 12px;border-radius:12px;border:1.5px solid var(--border);font-weight:700;font-size:13.5px;cursor:pointer;">Самовывоз</button>
+    </div>
+    <div id="cartModeHint" style="margin:0 16px 12px;font-size:12px;color:var(--text-3);min-height:16px;"></div>
+    <div id="cartList"></div>
+    <div id="cartSummary"></div>
+  </div>
+
+  <!-- ================= ОФОРМИТЬ ЗАКАЗ ================= -->
+  <div class="page" data-page="checkout">
+    <div class="back-row">
+      <div class="icon-btn" onclick="leaveCheckout()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div>
+      <h1 data-i18n="checkout_title">Оформить заказ</h1>
+    </div>
+    <div id="checkoutContent"></div>
+  </div>
+
+  <!-- ================= ORDERS (sub-page under profile) ================= -->
+  <div class="page" data-page="orders">
+    <div class="back-row">
+      <div class="icon-btn" onclick="goTab('profile')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div>
+      <h1 data-i18n="orders_title">Мои заказы</h1>
+    </div>
+    <div id="ordersList"></div>
+  </div>
+
+  <!-- ================= NOTIFICATIONS ================= -->
+  <div class="page" data-page="notifications">
+    <div class="back-row">
+      <div class="icon-btn" onclick="goTab(state.previousMainTab||'home')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div>
+      <h1 data-i18n="notifications_title">Уведомления</h1>
+      <button class="mark-all-btn" onclick="markAllRead()">Отметить все как прочитанное</button>
+    </div>
+    <div id="notifList"></div>
+  </div>
+
+  <!-- ================= SUPPORT ================= -->
+  <div class="page" data-page="support">
+    <div class="back-row"><div class="icon-btn" onclick="goTab('profile')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div><h1 data-i18n="support_title">Поддержка</h1></div>
+    <div id="supportHome">
+      <div class="chat-entry" onclick="openChat()">
+        <div class="avatar">💬</div>
+        <div><p style="font-weight:700;font-size:14.5px;margin:0;">Чат с поддержкой</p><p>Задайте вопрос и получите ответ от нашего специалиста</p></div>
+      </div>
+      <div style="padding:0 18px 8px;"><button class="primary-btn" style="margin:0;width:100%;" onclick="openChat()">Открыть чат</button></div>
+
+      <div class="section-head"><h3>Частые вопросы</h3></div>
+      <div class="faq-list" id="faqList"></div>
+
+      <div class="call-support" onclick="showToast('Звонок в поддержку: +998 78 150-00-00')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1.9.3 1.8.6 2.7a2 2 0 01-.4 2.1L8 9.9a16 16 0 006 6l1.4-1.4a2 2 0 012.1-.4c.9.3 1.8.5 2.7.6a2 2 0 011.8 2z"/></svg>
+        Позвонить в поддержку +998 78 150-00-00
+      </div>
+    </div>
+
+    <div id="chatView" style="display:none;">
+      <div class="chat-window">
+        <div class="chat-messages" id="chatMessages"></div>
+      </div>
+      <div style="padding:0 18px;position:sticky;bottom:80px;">
+        <div class="chat-input-row">
+          <input id="chatInput" placeholder="Напишите сообщение..." onkeydown="if(event.key==='Enter')sendChat()">
+          <button class="send-btn" onclick="sendChat()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= COMING SOON ================= -->
+  <div class="page" data-page="coming-soon">
+    <div class="topbar"><h1></h1></div>
+    <div class="auth-hero" style="padding-top:60px;">
+      <div class="auth-icon" id="comingSoonIcon" style="width:74px;height:74px;"></div>
+      <h2 id="comingSoonTitle" style="font-size:19px;">Скоро</h2>
+      <p id="comingSoonText" style="max-width:280px;margin-left:auto;margin-right:auto;"></p>
+      <span style="display:inline-block;margin-top:14px;background:var(--primary-light);color:var(--primary);font-weight:700;font-size:12.5px;padding:7px 14px;border-radius:20px;">Раздел в разработке</span>
+    </div>
+    <div style="padding:26px 18px 0;">
+      <button class="primary-btn outline" style="width:100%;margin:0;" onclick="goTab('home')">Вернуться на главную</button>
+    </div>
+  </div>
+
+  <!-- ================= BOTTOM NAV ================= -->
+  <div class="bottom-nav" id="bottomNav">
+    <button class="nav-item active" data-tab="home" onclick="goTab('home')">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg><span data-i18n="nav_home">Главная</span></button>
+    <button class="nav-item" data-tab="catalog" onclick="goTab('catalog')">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="nav_catalog">Каталог</span></button>
+    <button class="nav-item" data-tab="ai-design" onclick="goTab('ai-design')">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg><span data-i18n="nav_ai">ИИ-Дизайн</span><span class="nav-badge-new">NEW</span></button>
+    <button class="nav-item" data-tab="builders" onclick="goTab('builders')">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg><span data-i18n="nav_builders">Строители</span></button>
+    <button class="nav-item" data-tab="orders" onclick="goTab('orders')">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2l1 5h10l1-5"/><rect x="4" y="7" width="16" height="14" rx="2"/></svg><span data-i18n="nav_orders">Мои заказы</span></button>
+    <button class="nav-item" data-tab="profile" onclick="goTab('profile')">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span data-i18n="nav_profile">Профиль</span></button>
+
+    <div class="theme-toggle-row">
+      <div class="theme-switch">
+        <button id="themeLightBtn" class="active" onclick="setTheme('light')" title="Светлая тема">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        </button>
+        <button id="themeDarkBtn" onclick="setTheme('dark')" title="Тёмная тема">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+        </button>
+      </div>
+      <span data-i18n="dark_theme">Тёмная тема</span>
+    </div>
+    <div class="theme-toggle-row lang-switch">
+      <div class="theme-switch">
+        <button data-lang="uz" onclick="setLang('uz')" title="O'zbek">UZ</button>
+        <button data-lang="ru" onclick="setLang('ru')" title="Global (русский)">🌐</button>
+      </div>
+      <span>Til / Язык</span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="order-detail-overlay" id="orderDetailOverlay" onclick="if(event.target===this) closeOrderDetails()">
+    <div class="order-detail-modal">
+      <div class="close-row"><div class="icon-btn" onclick="closeOrderDetails()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></div></div>
+      <div id="orderDetailContent"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   StroyAI — фронтенд, подключённый к реальному API.
+   Смотрите backend/README.md за полной картой эндпоинтов.
+   ============================================================ */
+
+/* Адрес вашего запущенного бэкенда. При локальной разработке —
+   http://127.0.0.1:8000/api. В проде замените на свой домен,
+   например https://api.your-startup.uz/api */
+const API_BASE = '/api';
+
+/* Стили для главной страницы — чисто оформительские карточки,
+   раздел "ИИ-дизайн" сам пока скрыт за экраном "Скоро" (см. MVP-стратегию) */
+const styles = [
+  {id:'scandi', name:'Скандинавский', color:'#dbe3e8', accent:'#7a94a3', photo:'/media/styles/scandi.jpg'},
+  {id:'loft', name:'Лофт', color:'#4a4038', accent:'#c2703f', photo:'/media/styles/loft.jpg'},
+  {id:'minimal', name:'Минимализм', color:'#efece6', accent:'#b8ada0', photo:'/media/styles/minimal.webp'},
+  {id:'classic', name:'Классика', color:'#e9dcc3', accent:'#a8894f', photo:'/media/styles/classic.jpg'}
+];
+
+/* MVP-зона доставки: работаем пока только в Ташкенте, остальные города —
+   "скоро" (показываются в списке, но не кликабельны). */
+const uzCities = [
+  {name:'Ташкент', name_uz:'Toshkent', lat:41.2995, lng:69.2401, soon:false},
+  {name:'Чирчик', name_uz:'Chirchiq', lat:41.4711, lng:69.5822, soon:true},
+  {name:'Алмалык', name_uz:'Olmaliq', lat:40.8500, lng:69.6000, soon:true},
+  {name:'Ангрен', name_uz:'Angren', lat:41.0167, lng:70.1444, soon:true},
+  {name:'Янгиюль', name_uz:'Yangiyoʻl', lat:41.1136, lng:69.0475, soon:true},
+  {name:'Бекабад', name_uz:'Bekobod', lat:40.2167, lng:69.2667, soon:true},
+  {name:'Газалкент', name_uz:'Gʻazalkent', lat:41.5667, lng:70.0378, soon:true},
+  {name:'Нурафшан', name_uz:'Nurafshon', lat:41.0286, lng:69.3486, soon:true},
+  {name:'Пскент', name_uz:'Piskent', lat:40.8975, lng:69.6497, soon:true}
+];
+const DELIVERY_ZONE_LABEL = 'Ташкент и область';
+
+/* ============ I18N (o'zbek asosiy til, rus — global) ============ */
+const I18N = {
+  uz: {
+    nav_home:'Bosh sahifa', nav_catalog:'Katalog', nav_ai:'AI-Dizayn', nav_builders:'Quruvchilar', nav_profile:'Profil',
+    dark_theme:'Tungi mavzu',
+    city_zone_label:'Yetkazib berish hududi', city_soon:'Tez orada', city_changed:'Shahar tanlandi: ',
+    city_soon_toast:'Bu hududda hozircha ishlamaymiz — tez orada qo\'shamiz',
+    search_catalog:'Qidiruv va katalog', about_product:'Mahsulot haqida', reviews:'Sharhlar',
+    ai_design_soon:'AI-Dizayn (tez orada)', design_result:'Dizayn natijasi',
+    builders_market:'Quruvchilar birjasi', builders_request:'Brigada uchun ariza',
+    profile_title:'Profil', login_email:'Email orqali kirish', login_phone:'Telefon orqali kirish',
+    confirm_title:'Tasdiqlash',
+    cart_title:'Savat', checkout_title:'Buyurtma rasmiylashtirish', orders_title:'Buyurtmalarim',
+    notifications_title:'Bildirishnomalar', support_title:'Yordam',
+    hero_title:'Ortiqcha to\'lovsiz aniq material hisob-kitobi — 29 000 so\'mdan',
+    hero_btn:'Hisoblash →',
+    utp_price:'Ulgurji narxlarga yaqin', utp_delivery:'Toshkent va viloyat bo\'ylab yetkazib berish',
+    utp_calc:'Aniq hisoblaymiz — ortiqchasiz',
+    popular_styles:'Mashhur uslublar', how_it_works:'Bu qanday ishlaydi',
+    step1:'Kerakli materiallarni katalogdan tanlang', step2:'Savatga qo\'shing va buyurtma rasmiylashtiring',
+    step3:'Toshkent va viloyat bo\'ylab hammasini olib kelamiz', step4:'«Buyurtmalarim» bo\'limida holatni kuzating',
+    loading:'Yuklanmoqda…',
+    empty_orders:'Sizda hali buyurtmalar yo\'q', not_found_orders:'Buyurtmalarni yuklab bo\'lmadi',
+    empty_cart:'Savatingiz bo\'sh',
+    mode_delivery:'Yetkazib berish', mode_pickup:'Olib ketish',
+    pickup_markup_hint:"Olib ketishda mahsulot narxi 1% qimmatroq",
+    needs_crew_label:'Montaj/terish uchun brigada kerakmi',
+    needs_crew_hint:'(xohishga ko\'ra, alohida kelishiladi)',
+    items_label:'Mahsulotlar', checkout_btn:'Buyurtma rasmiylashtirish',
+    empty_cart_toast:'Savat bo\'sh — mahsulot qo\'shing',
+    order_detail_btn:'Buyurtma haqida', download_pdf_btn:'PDF yuklab olish',
+    co_waiting_title:'Yetkazib berish narxi kutilmoqda',
+    co_waiting_text:'Administrator yetkazib berish narxini hisoblayapti — odatda bu ko\'p vaqt olmaydi. Ma\'lumot kiritish shakli shu yerda o\'zi paydo bo\'ladi.',
+    co_done_title:'Buyurtma rasmiylashtirildi',
+    co_done_text_delivery:'To\'lov — yetkazib berilganda, joyida. Holatni «Buyurtmalarim» bo\'limida kuzatishingiz mumkin.',
+    co_done_text_pickup:'To\'lov — olib ketishda, joyida. Holatni «Buyurtmalarim» bo\'limida kuzatishingiz mumkin.',
+    co_name_label:'Buyurtmachi ismi', co_name_ph:'Sizga qanday murojaat qilsak',
+    co_address_label:'Yetkazib berish manzili', co_address_ph:'Ko\'cha, uy, kirish, qavat, xonadon, domofon kodi',
+    co_comment_label:'Kuryerga izoh', co_comment_optional:'(ixtiyoriy)',
+    co_comment_ph:'Masalan: domofon ishlamaydi, kelganda qo\'ng\'iroq qiling',
+    co_time_label_delivery:'Yetkazib berish vaqti', co_time_label_pickup:'Olib ketish vaqti',
+    co_asap:'Iloji boricha tezroq', co_specific:'Belgilangan vaqtga',
+    co_total_onsite:'Jami (to\'lov joyida):', co_submit:'Buyurtmani rasmiylashtirish',
+    co_pickup_address:'Olib ketish manzili', co_pickup_hours:'Ish tartibi',
+    order_number:'Buyurtma', goods:'Mahsulotlar:', delivery:'Yetkazib berish:', total:'Jami:',
+    awaiting_calc:'hisoblanmoqda',
+    st_processing:'Ishlanmoqda', st_materials_delivered:'Materiallar yetkazildi',
+    st_ready_for_pickup:'Olib ketishga tayyor', st_crew_dispatched:'Brigada yo\'lda', st_completed:'Yakunlandi',
+    pay_awaiting_payment:'Yetkazib berilganda to\'lov', pay_paid:'To\'langan', pay_payment_problem:'To\'lov muammosi',
+    st_cancelled:'Bekor qilindi',
+    nav_orders:'Buyurtmalarim',
+    auth_hero_title:'Hisobga kiring', auth_hero_text:'Buyurtma berish va xaridlar tarixini ko\'rish uchun email yoki telefon orqali kiring — kod o\'zi keladi, hech narsa o\'ylab topish shart emas.',
+    auth_tab_login:'Kirish', auth_tab_register:'Ro\'yxatdan o\'tish',
+    auth_choose_method:'Qanday kirmoqchisiz, tanlang',
+    method_email_title:'Email orqali kirish', method_email_sub:'Kod pochtaga keladi',
+    method_phone_title:'Telefon orqali kirish', method_phone_sub:'Kod SMS orqali keladi',
+    register_intro:'Ma\'lumotlarni to\'ldiring, so\'ng email yoki telefon orqali tasdiqlang — hammasini saqlab qolamiz.',
+    reg_first_name_label:'Ism', reg_first_name_ph:'Aziz',
+    reg_last_name_label:'Familiya', reg_last_name_optional:'(ixtiyoriy)', reg_last_name_ph:'Azizov',
+    reg_email_label:'Email', reg_phone_label:'Telefon', reg_submit:'Ro\'yxatdan o\'tish',
+    profile_subtitle:'Shaxsiy kabinet', client_default:'Mijoz',
+    menu_notifications:'Bildirishnomalar', menu_support:'Yordam', logout_btn:'Hisobdan chiqish',
+    phone_label:'Telefon', email_label:'Email', address_label:'Yetkazib berish manzili', address_not_set:'Ko\'rsatilmagan',
+    field_required_empty:'Maydon bo\'sh bo\'lishi mumkin emas', field_saved:'O\'zgarishlar saqlandi',
+    order_edit_btn:'Tahrirlash', order_cancel_btn:'Bekor qilish',
+    order_cancel_confirm:'Buyurtmani bekor qilishni tasdiqlaysizmi?',
+    order_cancelled_toast:'Buyurtma bekor qilindi', order_updated_toast:'Buyurtma yangilandi',
+    order_edit_title:'Buyurtma ma\'lumotlarini tahrirlash', save_btn:'Saqlash', cancel_btn:'Bekor qilish',
+  },
+  ru: {
+    nav_home:'Главная', nav_catalog:'Каталог', nav_ai:'ИИ-Дизайн', nav_builders:'Строители', nav_profile:'Профиль',
+    dark_theme:'Тёмная тема',
+    city_zone_label:'Зона доставки', city_soon:'Скоро', city_changed:'Город изменён: ',
+    city_soon_toast:'В этом городе пока не работаем — скоро подключим',
+    search_catalog:'Поиск и каталог', about_product:'О товаре', reviews:'Отзывы',
+    ai_design_soon:'ИИ-Дизайн (скоро)', design_result:'Результат дизайна',
+    builders_market:'Биржа строителей', builders_request:'Заявка на бригаду',
+    profile_title:'Профиль', login_email:'Вход по email', login_phone:'Вход по телефону',
+    confirm_title:'Подтверждение',
+    cart_title:'Корзина', checkout_title:'Оформить заказ', orders_title:'Мои заказы',
+    notifications_title:'Уведомления', support_title:'Поддержка',
+    hero_title:'Точный расчёт материалов без переплат — от 29 000 сум',
+    hero_btn:'Рассчитать →',
+    utp_price:'Цены ближе к оптовым', utp_delivery:'Доставка по Ташкенту и области',
+    utp_calc:'Считаем точно — без лишнего',
+    popular_styles:'Популярные стили', how_it_works:'Как это работает',
+    step1:'Выберите нужные материалы в каталоге', step2:'Добавьте в корзину и оформите заказ',
+    step3:'Мы привезём всё по Ташкенту и области', step4:'Следите за статусом в разделе «Мои заказы»',
+    loading:'Загрузка…',
+    empty_orders:'У вас пока нет заказов', not_found_orders:'Не удалось загрузить заказы',
+    empty_cart:'Ваша корзина пуста',
+    mode_delivery:'Доставка', mode_pickup:'Самовывоз',
+    pickup_markup_hint:'При самовывозе цена товаров выше на 1%',
+    needs_crew_label:'Нужна бригада для монтажа/укладки',
+    needs_crew_hint:'(по желанию, обсуждается отдельно)',
+    items_label:'Товары', checkout_btn:'Оформить заказ',
+    empty_cart_toast:'Корзина пуста — добавьте товары',
+    order_detail_btn:'Подробнее о заказе', download_pdf_btn:'Скачать PDF',
+    co_waiting_title:'Ожидаем расчёт доставки',
+    co_waiting_text:'Администратор считает стоимость доставки — это обычно занимает немного времени. Бланк оплаты откроется здесь автоматически.',
+    co_done_title:'Заказ оформлен',
+    co_done_text_delivery:'Оплата — на месте, при получении доставки. Следить за статусом можно в разделе «Мои заказы».',
+    co_done_text_pickup:'Оплата — на месте, при самовывозе. Следить за статусом можно в разделе «Мои заказы».',
+    co_name_label:'Имя заказчика', co_name_ph:'Как к вам обращаться',
+    co_address_label:'Адрес доставки', co_address_ph:'Улица, дом, подъезд, этаж, квартира, код домофона',
+    co_comment_label:'Комментарий курьеру', co_comment_optional:'(необязательно)',
+    co_comment_ph:'Например: код домофона не работает, звонить по приезду',
+    co_time_label_delivery:'Желаемое время доставки', co_time_label_pickup:'Желаемое время получения',
+    co_asap:'Как можно скорее', co_specific:'К определённому времени',
+    co_total_onsite:'Итого (оплата на месте):', co_submit:'Оформить заказ',
+    co_pickup_address:'Адрес самовывоза', co_pickup_hours:'Режим работы',
+    order_number:'Заказ', goods:'Товары:', delivery:'Доставка:', total:'Итого:',
+    awaiting_calc:'ожидает расчёта',
+    st_processing:'В обработке', st_materials_delivered:'Материалы доставлены',
+    st_ready_for_pickup:'Готово к выдаче', st_crew_dispatched:'Бригада выезжает', st_completed:'Завершено',
+    pay_awaiting_payment:'Оплата при получении', pay_paid:'Оплачено', pay_payment_problem:'Проблема с оплатой',
+    st_cancelled:'Отменён',
+    nav_orders:'Мои заказы',
+    auth_hero_title:'Войдите в аккаунт', auth_hero_text:'Чтобы оформлять заказы и видеть историю покупок, войдите по email или телефону — код придёт вам, ничего придумывать не нужно.',
+    auth_tab_login:'Вход', auth_tab_register:'Регистрация',
+    auth_choose_method:'Выберите, как вы хотите войти',
+    method_email_title:'Войти по email', method_email_sub:'Код придёт на почту',
+    method_phone_title:'Войти по телефону', method_phone_sub:'Код придёт в SMS',
+    register_intro:'Заполните данные, затем подтвердите вход по email или телефону — мы всё сохраним.',
+    reg_first_name_label:'Имя', reg_first_name_ph:'Иван',
+    reg_last_name_label:'Фамилия', reg_last_name_optional:'(необязательно)', reg_last_name_ph:'Иванов',
+    reg_email_label:'Email', reg_phone_label:'Телефон', reg_submit:'Зарегистрироваться',
+    profile_subtitle:'Личный кабинет', client_default:'Клиент',
+    menu_notifications:'Уведомления', menu_support:'Поддержка', logout_btn:'Выйти из аккаунта',
+    phone_label:'Телефон', email_label:'Email', address_label:'Адрес доставки', address_not_set:'Не указан',
+    field_required_empty:'Поле не может быть пустым', field_saved:'Изменения сохранены',
+    order_edit_btn:'Изменить', order_cancel_btn:'Отменить',
+    order_cancel_confirm:'Точно отменить этот заказ?',
+    order_cancelled_toast:'Заказ отменён', order_updated_toast:'Заказ обновлён',
+    order_edit_title:'Изменить данные заказа', save_btn:'Сохранить', cancel_btn:'Отмена',
+  }
+};
+function t(key){
+  const lang = state.lang || 'uz';
+  return (I18N[lang] && I18N[lang][key]) || I18N.ru[key] || key;
+}
+function statusLabel(key){ return t('st_' + key); }
+function payLabel(key){ return t('pay_' + key); }
+function modeLabel(key){ return key === 'pickup' ? t('mode_pickup') : t('mode_delivery'); }
+/* Товары хранят русский текст всегда и узбекский — когда он известен для
+   позиции демо-каталога (см. _build_uz_fields в backend.py). Если перевода
+   нет (например, товар добавлен вручную без него) — показываем русский,
+   чтобы карточка не осталась пустой. */
+function pname(p){ return (state.lang === 'uz' && p.name_uz) ? p.name_uz : p.name; }
+function pdesc(p){ return (state.lang === 'uz' && p.description_uz) ? p.description_uz : p.description; }
+function pspecs(p){ return (state.lang === 'uz' && p.specs_uz) ? p.specs_uz : p.specs; }
+function catName(c){ if(!c) return ''; return (state.lang === 'uz' && c.name_uz) ? c.name_uz : c.name; }
+/* Соотношение сторон фото товара (используется, чтобы картинка заполняла
+   блок без обрезки и без пустых полей). У каждой категории фото сняты в
+   своей студийной постановке — у кирпича, цемента и газоблока разные кадры,
+   поэтому у каждой категории своё значение (посчитано по обрезанным файлам
+   в media/products/ — фото заранее подрезаны от лишнего фона). */
+function productAspect(p){
+  const slug = p.category && p.category.slug;
+  if(slug === 'kirpich') return '0.7646';
+  if(slug === 'cement') return '0.8386';
+  if(slug === 'gazoblok') return '0.7370';
+  return '0.75';
+}
+function loadingSpinnerHTML(){
+  let dots = '';
+  for(let i=0;i<12;i++) dots += '<i></i>';
+  return `<div class="loading-block"><div class="dot-spinner">${dots}</div></div>`;
+}
+function applyI18n(){
+  document.documentElement.setAttribute('lang', state.lang === 'uz' ? 'uz' : 'ru');
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{ el.placeholder = t(el.dataset.i18nPlaceholder); });
+}
+function setLang(lang){
+  if(lang !== 'uz' && lang !== 'ru') return;
+  state.lang = lang;
+  localStorage.setItem('lang', lang);
+  document.querySelectorAll('.lang-switch button').forEach(b=>b.classList.toggle('active', b.dataset.lang===lang));
+  applyI18n();
+  renderCityOptions();
+  // Перерисовываем динамические экраны, если они уже были открыты — иначе
+  // часть текста осталась бы на предыдущем языке до следующего перехода.
+  if(document.querySelector('.page[data-page="cart"]')?.classList.contains('active')) renderCart();
+  if(document.querySelector('.page[data-page="orders"]')?.classList.contains('active')) loadOrders();
+  if(document.querySelector('.page[data-page="checkout"]')?.classList.contains('active') && state.checkoutOrder) renderCheckout();
+  if(document.querySelector('.page[data-page="profile"]')?.classList.contains('active')) renderProfile();
+  if(document.querySelector('.page[data-page="catalog"]')?.classList.contains('active')){ renderCatalogChips(); renderCatalog(); }
+  if(document.querySelector('.page[data-page="product"]')?.classList.contains('active') && state.currentProductId){
+    const p = productById(state.currentProductId); if(p) renderProductPage(p);
+  }
+}
+
+/* ============ STATE ============ */
+let state = {
+  lang: localStorage.getItem('lang') || 'uz',
+  currentTab:'home',
+  previousMainTab:'home',
+  city: localStorage.getItem('city') || 'Ташкент',
+  isLoggedIn:false,
+  user:null,
+  accessToken: localStorage.getItem('accessToken') || null,
+  refreshToken: localStorage.getItem('refreshToken') || null,
+  pendingAction:null,
+  pendingProfile:null,   // {first_name,last_name,email?,phone?} filled in the "Регистрация" step, applied after OTP login
+  pendingRegEmail:null,
+  pendingRegPhone:null,
+  categories:[],
+  products:[],
+  activeCategory:'all',
+  searchDebounce:null,
+  orders:[],
+  notifications:[],
+  cart:{items:[], total:0, count:0},
+  cartMode: localStorage.getItem('cartMode') === 'pickup' ? 'pickup' : 'delivery',
+  ordersPollInterval:null,
+  checkoutOrder:null,
+  checkoutTimeMode:'asap',
+  checkoutPollInterval:null,
+  needsCrew:false,
+  chatOpened:false,
+  authTab:'login',
+  currentProductId:null,
+  productQty:1,
+  loginMethod:null,
+  loginContact:'',
+  otpTimerInterval:null,
+  otpRemaining:60
+};
+
+/* ============ API HELPER ============ */
+async function api(path, {method='GET', body=null, auth=true, isForm=false} = {}){
+  const headers = {};
+  if(!isForm) headers['Content-Type'] = 'application/json';
+  if(auth && state.accessToken) headers['Authorization'] = 'Bearer ' + state.accessToken;
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body ? (isForm ? body : JSON.stringify(body)) : undefined
+  });
+
+  if(res.status === 401 && auth && state.accessToken){
+    // access token expired — the OTP-issued token doubles as the only
+    // session we have; simplest safe recovery is to sign the user out.
+    doLogout(true);
+    throw new Error('Сессия истекла, войдите заново');
+  }
+
+  let data = null;
+  try { data = await res.json(); } catch(e){ /* no body */ }
+
+  if(!res.ok){
+    const msg = (data && (data.detail || Object.values(data)[0])) || 'Ошибка сервера';
+    throw new Error(Array.isArray(msg) ? msg[0] : String(msg));
+  }
+  return data;
+}
+
+function fmt(n){ return Math.round(n).toLocaleString('ru-RU') + ' сум'; }
+
+function setTokens(access, refresh){
+  state.accessToken = access;
+  state.refreshToken = refresh;
+  localStorage.setItem('accessToken', access);
+  localStorage.setItem('refreshToken', refresh);
+}
+function clearTokens(){
+  state.accessToken = null;
+  state.refreshToken = null;
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+}
+
+/* ---- Illustration fallback for products without a real photo yet ---- */
+function shadeColor(hex, percent){
+  hex = hex.replace('#','');
+  if(hex.length===3) hex = hex.split('').map(c=>c+c).join('');
+  let r = parseInt(hex.substring(0,2),16), g = parseInt(hex.substring(2,4),16), b = parseInt(hex.substring(4,6),16);
+  r = Math.min(255,Math.max(0, Math.round(r + (percent<0? r : 255-r) * (percent/100))));
+  g = Math.min(255,Math.max(0, Math.round(g + (percent<0? g : 255-g) * (percent/100))));
+  b = Math.min(255,Math.max(0, Math.round(b + (percent<0? b : 255-b) * (percent/100))));
+  return `rgb(${r},${g},${b})`;
+}
+let svgDefsCounter = 0;
+function productIllustrationSVG(p){
+  const uid = 'g' + (svgDefsCounter++);
+  const base = p.color || '#cccccc';
+  const dark = shadeColor(base,-32), darker = shadeColor(base,-48);
+  const light = shadeColor(base,38), lighter = shadeColor(base,62);
+  const bg = '#f3f1ec', bg2 = '#e9e5dc';
+  const cat = (p.category && p.category.name) || '';
+
+  if(cat==='Кирпич'){
+    const rows=[0,1,2];
+    return `<svg viewBox="0 0 160 130" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+      <defs><linearGradient id="${uid}bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${bg2}"/></linearGradient>
+      <linearGradient id="${uid}brick" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${light}"/><stop offset="0.5" stop-color="${base}"/><stop offset="1" stop-color="${dark}"/></linearGradient></defs>
+      <rect width="160" height="130" fill="url(#${uid}bg)"/>
+      ${rows.map(row=>{
+        const offset = row%2===0 ? 0 : -26;
+        const cols=[0,1,2,3,4];
+        return cols.map(col=>`<rect x="${offset+col*52-6}" y="${10+row*38}" width="48" height="30" rx="2" fill="url(#${uid}brick)" stroke="${darker}" stroke-width="1"/>`).join('');
+      }).join('')}
+    </svg>`;
+  }
+  if(cat==='Цемент' || cat==='Сухие смеси'){
+    return `<svg viewBox="0 0 160 130" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+      <defs><linearGradient id="${uid}bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${bg2}"/></linearGradient>
+      <linearGradient id="${uid}bag" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${dark}"/><stop offset="0.2" stop-color="${light}"/><stop offset="0.5" stop-color="${base}"/><stop offset="0.85" stop-color="${dark}"/><stop offset="1" stop-color="${darker}"/></linearGradient></defs>
+      <rect width="160" height="130" fill="url(#${uid}bg)"/>
+      <path d="M52 22 Q80 6 108 22 L114 112 Q80 124 46 112 Z" fill="url(#${uid}bag)" stroke="${darker}" stroke-width="1"/>
+      <path d="M64 18 Q80 8 96 18" fill="none" stroke="${darker}" stroke-width="2.5" stroke-linecap="round"/>
+      <rect x="56" y="52" width="48" height="16" rx="2" fill="${lighter}" opacity="0.75"/>
+      <line x1="60" y1="80" x2="100" y2="80" stroke="${darker}" stroke-width="1" opacity="0.4"/>
+      <line x1="58" y1="92" x2="102" y2="92" stroke="${darker}" stroke-width="1" opacity="0.4"/>
+    </svg>`;
+  }
+  if(cat==='Газоблок'){
+    return `<svg viewBox="0 0 160 130" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+      <defs><linearGradient id="${uid}bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${bg2}"/></linearGradient>
+      <linearGradient id="${uid}block" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${lighter}"/><stop offset="0.5" stop-color="${base}"/><stop offset="1" stop-color="${dark}"/></linearGradient></defs>
+      <rect width="160" height="130" fill="url(#${uid}bg)"/>
+      <rect x="20" y="30" width="120" height="42" rx="3" fill="url(#${uid}block)" stroke="${darker}" stroke-width="1"/>
+      <rect x="20" y="76" width="120" height="42" rx="3" fill="url(#${uid}block)" stroke="${darker}" stroke-width="1" opacity="0.9"/>
+      ${[0,1,2,3].map(i=>`<circle cx="${38+i*30}" cy="51" r="2" fill="${darker}" opacity="0.3"/><circle cx="${38+i*30}" cy="97" r="2" fill="${darker}" opacity="0.3"/>`).join('')}
+    </svg>`;
+  }
+  /* Прочее (запасной вариант) */
+  return `<svg viewBox="0 0 160 130" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+    <defs><linearGradient id="${uid}bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${bg2}"/></linearGradient>
+    <linearGradient id="${uid}label" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${dark}"/><stop offset="0.3" stop-color="${light}"/><stop offset="0.6" stop-color="${base}"/><stop offset="1" stop-color="${dark}"/></linearGradient></defs>
+    <rect width="160" height="130" fill="url(#${uid}bg)"/>
+    <rect x="38" y="36" width="62" height="80" rx="4" fill="#c7ccd1"/>
+    <rect x="38" y="60" width="62" height="30" fill="url(#${uid}label)"/>
+  </svg>`;
+}
+/* Real photo if the admin uploaded one, otherwise the generated illustration */
+function productVisual(p){
+  if(p.image){
+    return `<img src="${p.image}" alt="${pname(p)}" loading="lazy">`;
+  }
+  return productIllustrationSVG(p);
+}
+
+function styleIllustrationImage(s){
+  const uid = 'st' + (svgDefsCounter++);
+  const wallColor = s.color, floorColor = shadeColor(s.color,-16);
+  const sofaDark = shadeColor(s.accent,-25), sofaLight = shadeColor(s.accent,25);
+  return `<svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+    <defs><linearGradient id="${uid}wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shadeColor(wallColor,10)}"/><stop offset="1" stop-color="${wallColor}"/></linearGradient>
+    <linearGradient id="${uid}floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shadeColor(floorColor,12)}"/><stop offset="1" stop-color="${shadeColor(floorColor,-14)}"/></linearGradient>
+    <linearGradient id="${uid}sofa" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sofaLight}"/><stop offset="1" stop-color="${sofaDark}"/></linearGradient></defs>
+    <rect width="100" height="66" fill="url(#${uid}wall)"/>
+    <rect y="62" width="100" height="38" fill="url(#${uid}floor)"/>
+    <g transform="translate(8,44)"><rect x="0" y="10" width="58" height="20" rx="6" fill="url(#${uid}sofa)"/><rect x="0" y="2" width="16" height="20" rx="6" fill="${sofaLight}"/></g>
+  </svg>`;
+}
+function styleThumbHTML(s){
+  const visual = s.photo
+    ? `<img src="${s.photo}" alt="${s.name}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`
+    : styleIllustrationImage(s);
+  return `<div class="style-card"><div class="style-thumb" style="overflow:hidden;">${visual}</div><span>${s.name}</span></div>`;
+}
+function renderStyles(){
+  const el = document.getElementById('homeStylesRow');
+  if(el) el.innerHTML = styles.map(s=>styleThumbHTML(s)).join('');
+}
+
+/* ============ TOAST ============ */
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+function showError(err){
+  showToast(err && err.message ? err.message : 'Что-то пошло не так');
+}
+
+/* ============ LOGIN GATING ============ */
+function requireLogin(action){
+  if(!state.isLoggedIn){
+    state.pendingAction = action;
+    showToast('Сначала войдите в профиль, чтобы оформить заказ');
+    goTab('profile');
+    return false;
+  }
+  return true;
+}
+function runPendingAction(){
+  if(state.pendingAction){
+    const fn = state.pendingAction;
+    state.pendingAction = null;
+    setTimeout(fn, 300);
+  }
+}
+
+/* ============ AUTH ============ */
+function setAuthTab(tab){
+  state.authTab = tab;
+  document.getElementById('tabLogin').classList.toggle('active', tab==='login');
+  document.getElementById('tabRegister').classList.toggle('active', tab==='register');
+  document.getElementById('loginForm').style.display = tab==='login' ? 'block':'none';
+  document.getElementById('registerForm').style.display = tab==='register' ? 'block':'none';
+}
+async function doRegister(){
+  const firstName = document.getElementById('regFirstName').value.trim();
+  const lastName = document.getElementById('regLastName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  let phone = document.getElementById('regPhone').value.trim();
+  if(phone){
+    phone = phone.replace(/[^\d+]/g, '');
+    if(!phone.startsWith('+')) phone = '+' + phone.replace(/^\+*/, '');
+  }
+  if(!firstName){ showToast('Введите имя'); return; }
+  if(!email && !phone){ showToast('Укажите email или телефон (можно оба)'); return; }
+  if(email && !email.includes('@')){ showToast('Введите корректный email'); return; }
+
+  const btn = document.querySelector('#registerForm .primary-btn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Создаём аккаунт…';
+  try{
+    await api('/register/', {method:'POST', auth:false, body:{
+      first_name: firstName, last_name: lastName, email: email || undefined, phone: phone || undefined
+    }});
+    state.pendingRegEmail = email;
+    state.pendingRegPhone = phone;
+    showToast('Аккаунт создан! Теперь подтвердите вход по email или телефону');
+    setAuthTab('login');
+  }catch(err){
+    showToast(err.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+function goToLoginMethod(method){
+  state.loginMethod = method;
+  if(method==='email'){
+    goTab('login-email');
+    if(state.pendingRegEmail) document.getElementById('loginEmailInput').value = state.pendingRegEmail;
+  } else {
+    goTab('login-phone');
+    if(state.pendingRegPhone) document.getElementById('loginPhoneInput').value = state.pendingRegPhone;
+  }
+}
+function sendOtp(method){
+  let contact;
+  if(method==='email'){
+    contact = document.getElementById('loginEmailInput').value.trim();
+    if(!contact || !contact.includes('@')){ showToast('Введите корректный email'); return; }
+  } else {
+    const raw = document.getElementById('loginPhoneInput').value.trim();
+    contact = raw.replace(/[^\d+]/g, '');
+    if(!contact.startsWith('+')) contact = '+' + contact.replace(/^\+*/, '');
+    if(contact.replace('+','').length < 9){ showToast('Введите корректный номер телефона'); return; }
+  }
+  state.loginMethod = method;
+  state.loginContact = contact;
+
+  api('/otp/request/', {method:'POST', auth:false, body:{
+    channel: method==='email' ? 'email' : 'sms',
+    destination: contact,
+    purpose: 'login'
+  }})
+  .then(()=>{
+    document.getElementById('otpContactLabel').textContent = contact;
+    document.getElementById('otpInput').value = '';
+    document.getElementById('otpError').style.display = 'none';
+    showToast(method==='email' ? 'Код отправлен на почту' : 'Код отправлен по SMS');
+    goTab('otp');
+    startOtpTimer();
+  })
+  .catch(showError);
+}
+function startOtpTimer(){
+  clearInterval(state.otpTimerInterval);
+  state.otpRemaining = 60;
+  const resendBtn = document.getElementById('resendBtn');
+  resendBtn.disabled = true;
+  resendBtn.innerHTML = 'Отправить код повторно (<span id="otpTimerLabel">60</span>с)';
+  state.otpTimerInterval = setInterval(()=>{
+    state.otpRemaining--;
+    const lbl = document.getElementById('otpTimerLabel');
+    if(lbl) lbl.textContent = state.otpRemaining;
+    if(state.otpRemaining <= 0){
+      clearInterval(state.otpTimerInterval);
+      resendBtn.disabled = false;
+      resendBtn.textContent = 'Отправить код повторно';
+    }
+  }, 1000);
+}
+function resendOtp(){
+  if(document.getElementById('resendBtn').disabled) return;
+  sendOtp(state.loginMethod);
+}
+async function verifyOtp(){
+  const code = document.getElementById('otpInput').value.trim();
+  if(code.length !== 6){
+    document.getElementById('otpError').style.display = 'block';
+    showToast('Введите 6-значный код');
+    return;
+  }
+  try{
+    const data = await api('/otp/verify/', {method:'POST', auth:false, body:{
+      channel: state.loginMethod==='email' ? 'email' : 'sms',
+      destination: state.loginContact,
+      code,
+      purpose: 'login'
+    }});
+    document.getElementById('otpError').style.display = 'none';
+    clearInterval(state.otpTimerInterval);
+    setTokens(data.access, data.refresh);
+    state.user = data.user;
+    state.isLoggedIn = true;
+
+    if(state.pendingProfile){
+      try{
+        state.user = await api('/me/', {method:'PATCH', body: state.pendingProfile});
+      }catch(e){ /* non-fatal */ }
+      state.pendingProfile = null;
+      state.pendingRegEmail = null;
+      state.pendingRegPhone = null;
+    }
+
+    renderProfile();
+    await Promise.all([refreshCart(), refreshNotifications()]);
+    showToast('Добро пожаловать' + (state.user.first_name ? ', ' + state.user.first_name : '') + '!');
+    if(state.pendingAction) runPendingAction();
+    else goTab('catalog');
+  }catch(err){
+    document.getElementById('otpError').style.display = 'block';
+    showToast(err.message);
+  }
+}
+function doLogout(silent){
+  clearTokens();
+  state.isLoggedIn = false;
+  state.user = null;
+  state.cart = {items:[], total:0, count:0};
+  state.orders = [];
+  state.notifications = [];
+  updateCartBadges();
+  updateBellDot();
+  renderProfile();
+  if(!silent) showToast('Вы вышли из аккаунта');
+  goTab('home');
+}
+async function restoreSession(){
+  if(!state.accessToken) return;
+  try{
+    state.user = await api('/me/');
+    state.isLoggedIn = true;
+    renderProfile();
+    await Promise.all([refreshCart(), refreshNotifications()]);
+  }catch(e){
+    clearTokens();
+  }
+}
+
+/* ============ PROFILE ============ */
+function renderProfile(){
+  document.getElementById('authView').style.display = state.isLoggedIn ? 'none' : 'block';
+  document.getElementById('profileView').style.display = state.isLoggedIn ? 'block' : 'none';
+  if(!state.isLoggedIn || !state.user) return;
+  const u = state.user;
+  const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || t('client_default');
+  document.getElementById('profileNameLabel').textContent = fullName;
+  document.getElementById('profileInitials').textContent = fullName.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+  renderInfoRow('phoneRow', t('phone_label'), u.phone || '—', null); // read-only: identity comes from OTP channel
+  renderInfoRow('emailRow', t('email_label'), u.email && !u.email.endsWith('@users.local') ? u.email : '—', null);
+  renderInfoRow('addressRow', t('address_label'), u.address || t('address_not_set'), 'address');
+}
+function infoIcon(type){
+  if(type==='phone') return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1.9.3 1.8.6 2.7a2 2 0 01-.4 2.1L8 9.9a16 16 0 006 6l1.4-1.4a2 2 0 012.1-.4c.9.3 1.8.5 2.7.6a2 2 0 011.8 2z"/></svg>`;
+  if(type==='email') return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>`;
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 1118 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+}
+function renderInfoRow(elId, label, value, editField){
+  const pencil = editField ? `
+    <button class="edit-pencil" onclick="editField('${editField}','${elId}','${label}')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 013 3L12 15l-4 1 1-4z"/></svg>
+    </button>` : '';
+  const iconType = editField==='address' ? 'address' : (elId==='phoneRow' ? 'phone' : 'email');
+  document.getElementById(elId).innerHTML = `
+    <div class="info-icon">${infoIcon(iconType)}</div>
+    <div class="info-body"><div class="info-label">${label}</div><div class="info-value">${value}</div></div>
+    ${pencil}`;
+}
+function editField(field, elId, label){
+  const current = (state.user && state.user[field]) || '';
+  document.getElementById(elId).innerHTML = `
+    <div class="info-icon">${infoIcon('address')}</div>
+    <div class="info-body"><div class="info-label">${label}</div><input id="editInput_${field}" value="${current}"></div>
+    <div class="edit-actions">
+      <button class="edit-save" onclick="saveField('${field}','${elId}','${label}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></button>
+      <button class="edit-cancel" onclick="renderProfile()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>`;
+  document.getElementById(`editInput_${field}`).focus();
+}
+async function saveField(field, elId, label){
+  const val = document.getElementById(`editInput_${field}`).value.trim();
+  if(!val){ showToast(t('field_required_empty')); return; }
+  try{
+    state.user = await api('/me/', {method:'PATCH', body:{[field]: val}});
+    renderProfile();
+    showToast(t('field_saved'));
+  }catch(err){ showError(err); }
+}
+
+/* ============ CITY / LOCATION (Uzbekistan, MVP delivery zone only) ============ */
+function haversine(lat1,lng1,lat2,lng2){
+  const R=6371, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function nearestUzCity(lat,lng){
+  let best = uzCities[0], bestDist = Infinity;
+  uzCities.forEach(c=>{ const d = haversine(lat,lng,c.lat,c.lng); if(d<bestDist){bestDist=d; best=c;} });
+  return {name: best.name, distanceKm: bestDist};
+}
+function detectCity(){
+  // Пока в системе доступен только Ташкент — геолокация тут не нужна,
+  // остальные зоны ещё не подключены к доставке.
+  setCity('Ташкент', true);
+}
+function setCity(name, silent){
+  state.city = name;
+  localStorage.setItem('city', name);
+  document.getElementById('cityLabel').textContent = state.lang === 'uz' ? 'Toshkent' : name;
+  renderCityOptions();
+  if(!silent) showToast(t('city_changed') + (state.lang === 'uz' ? 'Toshkent' : name));
+}
+function renderCityOptions(){
+  document.getElementById('cityOptions').innerHTML = uzCities.map(c=>{
+    const label = state.lang === 'uz' ? c.name_uz : c.name;
+    if(c.soon){
+      return `<div class="city-option city-option-soon" onclick="cityComingSoon()">${label} <span class="city-soon-pill">${t('city_soon')}</span></div>`;
+    }
+    return `<div class="city-option ${state.city===c.name?'selected':''}" onclick="pickCity('${c.name}')">${label} ${state.city===c.name?'✓':''}</div>`;
+  }).join('');
+}
+function cityComingSoon(){ showToast(t('city_soon_toast')); }
+function pickCity(name){ setCity(name); toggleCityDropdown(false); }
+function toggleCityDropdown(force){
+  const dd = document.getElementById('cityDropdown');
+  if(typeof force === 'boolean'){ dd.classList.toggle('open', force); return; }
+  dd.classList.toggle('open');
+}
+document.addEventListener('click', function(e){
+  const dd = document.getElementById('cityDropdown');
+  if(!dd) return;
+  if(!e.target.closest('.city-dropdown') && !e.target.closest('.loc')) dd.classList.remove('open');
+});
+
+/* ============ NAV ============ */
+const COMING_SOON_TABS = {
+  'ai-design': { icon: 'sparkle', title: 'ИИ-Дизайн', text: 'На старте MVP мы фокусируемся на магазине и доставке по Ташкенту и области. Бэкенд для ИИ-расчёта уже готов (см. /api/ai-design/) — включим на фронтенде следующим шагом.' },
+  'builders': { icon: 'builders', title: 'Биржа строителей', text: 'На старте мы сосредоточены на магазине и доставке. Бэкенд для бригад уже готов (см. /api/builders/) — включим на фронтенде, когда будем готовы расширяться.' }
+};
+function comingSoonIcon(type){
+  if(type==='sparkle') return `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg>`;
+  return `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>`;
+}
+/* Плавный переход между страницами: гарантированно перезапускает CSS-transition
+   при каждом клике (иначе браузер иногда "проглатывает" анимацию). */
+function showPage(selector){
+  document.querySelectorAll('.page').forEach(p=>{ p.classList.remove('active'); p.style.display=''; });
+  const target = document.querySelector(selector);
+  if(!target) return;
+  target.style.display = 'block';
+  void target.offsetHeight; // форсируем reflow, чтобы transition точно сыграл
+  target.classList.add('active');
+}
+function showComingSoon(tab){
+  const info = COMING_SOON_TABS[tab];
+  showPage('.page[data-page="coming-soon"]');
+  document.getElementById('comingSoonIcon').innerHTML = comingSoonIcon(info.icon);
+  document.getElementById('comingSoonTitle').textContent = info.title;
+  document.getElementById('comingSoonText').textContent = info.text;
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.querySelector(`.nav-item[data-tab="${tab}"]`).classList.add('active');
+  window.scrollTo(0,0);
+}
+function goTab(tab){
+  stopCheckoutPolling();
+  if(COMING_SOON_TABS[tab]){ showComingSoon(tab); return; }
+  if((tab==='orders' || tab==='cart') && !requireLogin(()=>goTab(tab))) return;
+  if(tab!=='notifications'){ state.previousMainTab = state.currentTab; }
+  showPage(`.page[data-page="${tab}"]`);
+  const mainTabs = ['home','catalog','ai-design','builders','orders','profile'];
+  if(mainTabs.includes(tab)){
+    state.currentTab = tab;
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    document.querySelector(`.nav-item[data-tab="${tab}"]`).classList.add('active');
+  } else {
+    const parentMap = {result:'ai-design', booking:'builders', orders:'profile', support:'profile', notifications:state.previousMainTab, product:'catalog', reviews:'catalog', cart:'catalog', 'login-email':'profile', 'login-phone':'profile', otp:'profile'};
+    const parent = parentMap[tab];
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    if(parent){ const el = document.querySelector(`.nav-item[data-tab="${parent}"]`); if(el) el.classList.add('active'); }
+  }
+  window.scrollTo(0,0);
+  if(tab==='catalog') loadCatalog();
+  if(tab==='orders'){ loadOrders(); startOrdersPolling(); } else { stopOrdersPolling(); }
+  if(tab==='profile') renderProfile();
+  if(tab==='notifications') refreshNotifications();
+  if(tab==='support'){ document.getElementById('supportHome').style.display='block'; document.getElementById('chatView').style.display='none'; loadFAQ(); }
+  if(tab==='cart') renderCart();
+  if(tab==='reviews') loadReviews();
+}
+// Пока открыт раздел "Мои заказы" — периодически подтягиваем статусы, чтобы
+// подтверждение оплаты администратором через Telegram-бота появлялось на
+// сайте само, без ручного обновления страницы (пункт 4 ТЗ).
+function startOrdersPolling(){
+  stopOrdersPolling();
+  state.ordersPollInterval = setInterval(()=>{
+    if(document.querySelector('.page[data-page="orders"]').classList.contains('active')) loadOrders();
+    else stopOrdersPolling();
+  }, 8000);
+}
+function stopOrdersPolling(){
+  if(state.ordersPollInterval){ clearInterval(state.ordersPollInterval); state.ordersPollInterval = null; }
+}
+
+/* ============ CATALOG ============ */
+async function loadCategories(){
+  try{
+    state.categories = await api('/categories/', {auth:false});
+    renderCatalogChips();
+  }catch(err){ showError(err); }
+}
+function renderCatalogChips(){
+  const all = [{id:'all', name:'Все', name_uz:'Barchasi', slug:'all'}, ...state.categories];
+  document.getElementById('catalogChips').innerHTML = all.map(c=>
+    `<button class="chip ${state.activeCategory===c.slug?'active':''}" onclick="setCategory('${c.slug}')">${catName(c)}</button>`
+  ).join('');
+}
+function setCategory(slug){ state.activeCategory = slug; renderCatalogChips(); loadCatalog(); }
+function onCatalogSearchInput(){
+  clearTimeout(state.searchDebounce);
+  state.searchDebounce = setTimeout(loadCatalog, 300);
+}
+async function loadCatalog(){
+  const grid = document.getElementById('productGrid');
+  grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">${loadingSpinnerHTML()}</div>`;
+  const q = (document.getElementById('catalogSearch').value || '').trim();
+  const params = new URLSearchParams();
+  if(state.activeCategory !== 'all') params.set('category', state.activeCategory);
+  if(q) params.set('search', q);
+  try{
+    const data = await api(`/products/?${params.toString()}`, {auth:false});
+    state.products = data.results || data;
+    renderCatalog();
+  }catch(err){
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Не удалось загрузить каталог.<br>Проверьте, что бэкенд запущен на ${API_BASE}</div>`;
+  }
+}
+function renderCatalog(){
+  const grid = document.getElementById('productGrid');
+  if(!state.products.length){ grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">Ничего не найдено</div>`; return; }
+  grid.innerHTML = state.products.map(p=>`
+    <div class="product-card" onclick="openProductPage(${p.id})">
+      <div class="swatch" style="aspect-ratio:${productAspect(p)};">${productVisual(p)}</div>
+      <div class="product-info">
+        <p class="pname">${pname(p)}</p>
+        <div class="rating-row">⭐ ${p.rating}</div>
+        <div class="price-row" style="margin-top:8px;">
+          <span class="price">${Number(p.price).toLocaleString('ru-RU')} сум/${p.unit}</span>
+          <button class="cart-fab" id="cart-${p.id}" onclick="handleAddToCart(${p.id}, event)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+function productById(id){ return state.products.find(p=>p.id===id); }
+
+/* ============ PRODUCT DETAIL ============ */
+async function openProductPage(id){
+  state.currentProductId = id;
+  state.productQty = 1;
+  goTab('product');
+  try{
+    const p = await api(`/products/${id}/`, {auth:false});
+    const idx = state.products.findIndex(x=>x.id===id);
+    if(idx>=0) state.products[idx] = p; else state.products.push(p);
+    renderProductPage(p);
+  }catch(err){ showError(err); }
+}
+function renderProductPage(p){
+  document.getElementById('productHero').innerHTML = productVisual(p);
+  document.getElementById('productHero').style.aspectRatio = productAspect(p);
+  document.getElementById('productCat').textContent = catName(p.category);
+  document.getElementById('productTitle').textContent = pname(p);
+  document.getElementById('productRatingRow').innerHTML = `⭐ ${p.rating} <span style="color:var(--text-3);">· ${p.reviews_count} отзывов</span>`;
+  document.getElementById('productPriceBig').textContent = `${Number(p.price).toLocaleString('ru-RU')} сум/${p.unit}`;
+  document.getElementById('productDesc').textContent = pdesc(p);
+  document.getElementById('productSpecs').innerHTML = Object.entries(pspecs(p) || {}).map(([k,v])=>`
+    <div class="spec-row"><span class="spec-label">${k}</span><span class="spec-value">${v}</span></div>`).join('');
+  const related = state.products.filter(x=>x.id!==p.id).slice(0,4);
+  document.getElementById('relatedRow').innerHTML = related.map(r=>`
+    <div class="related-card" onclick="openProductPage(${r.id})">
+      <div class="related-thumb">${productVisual(r)}</div>
+      <p class="rname">${pname(r)}</p>
+      <p class="rprice">${Number(r.price).toLocaleString('ru-RU')} сум/${r.unit}</p>
+    </div>`).join('');
+  document.getElementById('qtyValue').textContent = state.productQty;
+  document.getElementById('reviewsEntryRating').innerHTML = `⭐ ${p.rating} <span style="color:var(--text-2);">· ${p.reviews_count} отзывов</span>`;
+}
+async function loadReviews(){
+  const p = productById(state.currentProductId);
+  const list = document.getElementById('reviewsList');
+  document.getElementById('reviewsSummary').innerHTML = `
+    <div><div class="big-rating">${p ? p.rating : '—'}</div>
+      <div class="stars">${p ? '★'.repeat(Math.round(p.rating)) + '☆'.repeat(5-Math.round(p.rating)) : ''}</div>
+      <div class="count" id="reviewsCountLabel">…</div></div>
+    <div style="flex:1;"><p style="margin:0 0 4px;font-weight:700;font-size:14px;">${p ? pname(p) : ''}</p>
+      <p style="margin:0;font-size:12.5px;color:var(--text-2);">Отзывы покупателей о товаре</p></div>`;
+  list.innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
+  try{
+    const reviews = await api(`/products/${state.currentProductId}/reviews/`, {auth:false});
+    const countEl = document.getElementById('reviewsCountLabel');
+    if(countEl) countEl.textContent = `${reviews.length} отзывов`;
+    list.innerHTML = reviews.length ? reviews.map(r=>`
+      <div class="review-card">
+        <div class="review-top">
+          <div class="review-avatar">${r.author_name.split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
+          <div><p class="review-name">${r.author_name}</p><p class="review-date">${new Date(r.created_at).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})}</p></div>
+          <span class="review-stars">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span>
+        </div>
+        <p class="review-text">${r.text}</p>
+      </div>`).join('') : `<div class="empty-state">Пока нет отзывов на этот товар</div>`;
+  }catch(err){ list.innerHTML = `<div class="empty-state">Не удалось загрузить отзывы</div>`; }
+}
+function changeQty(delta){
+  state.productQty = Math.max(1, Math.min(99, state.productQty + delta));
+  document.getElementById('qtyValue').textContent = state.productQty;
+}
+async function addToCartFromDetail(){
+  if(!requireLogin(addToCartFromDetail)) return;
+  const p = productById(state.currentProductId);
+  await addToCartQty(p.id, state.productQty);
+  const btn = document.getElementById('addToCartDetailBtn');
+  const original = btn.textContent;
+  btn.textContent = 'Добавлено ✓';
+  showToast(`${pname(p)} × ${state.productQty} добавлено в корзину`);
+  setTimeout(()=>{ btn.textContent = original; }, 1500);
+}
+function handleAddToCart(id, e){
+  e.stopPropagation();
+  if(!requireLogin(()=>addToCartQty(id, 1, true))) return;
+  addToCartQty(id, 1, true);
+}
+
+/* ============ CART (backed by /api/cart/) ============ */
+async function refreshCart(){
+  if(!state.isLoggedIn) return;
+  try{
+    state.cart = await api(`/cart/?mode=${state.cartMode}`);
+    updateCartBadges();
+  }catch(err){ /* stay silent, cart badge just won't update */ }
+}
+function setCartMode(mode){
+  if(mode !== 'delivery' && mode !== 'pickup') return;
+  if(mode === state.cartMode) return;
+  state.cartMode = mode;
+  localStorage.setItem('cartMode', mode);
+  // Кнопку подсвечиваем сразу — отклик на клик должен быть мгновенным,
+  // а вот пересчёт цены (самовывоз = +1%) показываем через спиннер на 2 сек,
+  // чтобы было явно видно, что идёт пересчёт, а не просто дёрнулась цифра.
+  document.querySelectorAll('#cartModeToggle .mode-toggle-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  const listEl = document.getElementById('cartList');
+  const summaryEl = document.getElementById('cartSummary');
+  if(listEl){ listEl.classList.add('is-loading'); listEl.innerHTML = loadingSpinnerHTML(); }
+  if(summaryEl) summaryEl.innerHTML = '';
+  clearTimeout(state.cartModeSwitchTimer);
+  state.cartModeSwitchTimer = setTimeout(()=>{ renderCart(true); }, 2000);
+}
+async function addToCartQty(productId, qty, isGridButton){
+  try{
+    state.cart = await api('/cart/items/', {method:'POST', body:{product_id: productId, quantity: qty}});
+    updateCartBadges();
+    if(isGridButton){
+      const btn = document.getElementById('cart-'+productId);
+      if(btn){
+        btn.classList.add('added');
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>`;
+        setTimeout(()=>{ btn.classList.remove('added'); btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>`; }, 1500);
+      }
+      const p = productById(productId);
+      showToast((p ? pname(p) : 'Товар') + ' добавлен в корзину');
+    }
+  }catch(err){ showError(err); }
+}
+async function changeCartQty(itemId, delta){
+  const item = state.cart.items.find(i=>i.id===itemId);
+  if(!item) return;
+  const next = item.quantity + delta;
+  try{
+    if(next <= 0){
+      state.cart = await api(`/cart/items/${itemId}/`, {method:'DELETE'});
+    } else {
+      state.cart = await api(`/cart/items/${itemId}/`, {method:'PATCH', body:{quantity: next}});
+    }
+    updateCartBadges();
+    renderCart();
+  }catch(err){ showError(err); }
+}
+async function setCartQty(itemId, rawValue){
+  const item = state.cart.items.find(i=>i.id===itemId);
+  if(!item) return;
+  const digits = String(rawValue).replace(/[^0-9]/g,'');
+  const next = digits === '' ? 0 : parseInt(digits, 10);
+  if(next === item.quantity){ renderCart(); return; }
+  try{
+    if(next <= 0){
+      state.cart = await api(`/cart/items/${itemId}/`, {method:'DELETE'});
+    } else {
+      state.cart = await api(`/cart/items/${itemId}/`, {method:'PATCH', body:{quantity: next}});
+    }
+    updateCartBadges();
+    renderCart();
+  }catch(err){ showError(err); renderCart(); }
+}
+async function removeFromCart(itemId){
+  try{
+    state.cart = await api(`/cart/items/${itemId}/`, {method:'DELETE'});
+    updateCartBadges();
+    renderCart();
+  }catch(err){ showError(err); }
+}
+function updateCartBadges(){
+  const count = state.cart.count || 0;
+  ['cartDotCatalog','cartDotProduct'].forEach(elId=>{
+    const el = document.getElementById(elId);
+    if(el) el.style.display = count > 0 ? 'block' : 'none';
+  });
+}
+async function renderCart(animatePriceChange){
+  await refreshCart();
+  const listEl = document.getElementById('cartList');
+  const summaryEl = document.getElementById('cartSummary');
+  const hintEl = document.getElementById('cartModeHint');
+  const items = state.cart.items || [];
+  listEl.classList.remove('is-loading'); // сняли узкое ограничение только на время спиннера
+
+  // подсветить активную кнопку режима
+  document.querySelectorAll('#cartModeToggle .mode-toggle-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.mode === state.cartMode);
+  });
+  if(hintEl){
+    hintEl.textContent = state.cartMode === 'pickup'
+      ? t('pickup_markup_hint')
+      : '';
+  }
+
+  if(items.length===0){
+    listEl.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>
+      ${t('empty_cart')}</div>`;
+    summaryEl.innerHTML = '';
+    return;
+  }
+  listEl.innerHTML = `<div class="info-card" style="margin-bottom:0;">` + items.map(item=>{
+    const p = item.product;
+    return `<div class="cart-row">
+      <div class="cart-thumb">${productVisual(p)}</div>
+      <div class="cart-info">
+        <p class="cname">${pname(p)}</p>
+        <p class="cunit price-amount">${Number(p.price).toLocaleString('ru-RU')} сум/${p.unit}</p>
+        <div class="cart-line-total price-amount">${fmt(item.line_total)}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+        <button class="cart-remove" onclick="removeFromCart(${item.id})">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>
+        </button>
+        <div class="cart-qty">
+          <button onclick="changeCartQty(${item.id},-1)">−</button>
+          <input class="cart-qty-input" type="text" inputmode="numeric" pattern="[0-9]*"
+            value="${item.quantity}"
+            onclick="this.select()"
+            onkeydown="if(event.key==='Enter'){this.blur();}"
+            onchange="setCartQty(${item.id}, this.value)">
+          <button onclick="changeCartQty(${item.id},1)">+</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('') + `</div>`;
+
+  // Стоимость доставки в корзине НЕ показываем (пункт 1 ТЗ) — только сумма
+  // товаров. Итоговую сумму (товары + доставка) клиент увидит на странице
+  // «Оформить заказ» после того, как администратор укажет доставку.
+  summaryEl.innerHTML = `
+    <label style="display:flex;align-items:center;gap:10px;padding:10px 2px;font-size:13px;color:var(--text-2);cursor:pointer;">
+      <input type="checkbox" id="needsCrewCheckbox" ${state.needsCrew ? 'checked' : ''} onchange="state.needsCrew=this.checked;" style="width:18px;height:18px;accent-color:var(--primary);">
+      ${t('needs_crew_label')} <span style="color:var(--text-3);">${t('needs_crew_hint')}</span>
+    </label>
+    <div class="total-row" style="padding-top:0;font-weight:800;font-size:15px;"><span>${t('items_label')} (${state.cart.count}):</span><span class="price-amount">${fmt(state.cart.total)}</span></div>
+    <button class="primary-btn" onclick="confirmCartOrder()">${t('checkout_btn')}</button>`;
+
+  if(animatePriceChange){
+    // Небольшая подсветка всех цен, чтобы было видно, что они пересчитались
+    // при переключении Доставка/Самовывоз (self-pickup даёт +1% к цене товара).
+    requestAnimationFrame(()=>{
+      document.querySelectorAll('.price-amount').forEach(el=>{
+        el.classList.remove('price-flash');
+        void el.offsetWidth; // форсируем reflow, чтобы анимация перезапустилась
+        el.classList.add('price-flash');
+      });
+    });
+  }
+}
+async function confirmCartOrder(){
+  if(!requireLogin(confirmCartOrder)) return;
+  if(!(state.cart.items && state.cart.items.length)){ showToast(t('empty_cart_toast')); return; }
+  try{
+    // Переход на «Оформить заказ» сразу отправляет чек администратору в бота
+    // (пункт 2 ТЗ) — сам POST /orders/checkout/ уже кладёт уведомление в очередь бота.
+    const order = await api('/orders/checkout/', {method:'POST', body:{mode: state.cartMode, needs_crew: !!state.needsCrew}});
+    state.cart = {items:[], total:0, count:0};
+    state.needsCrew = false;
+    updateCartBadges();
+    openCheckout(order);
+  }catch(err){ showError(err); }
+}
+
+/* ============ ОФОРМИТЬ ЗАКАЗ (ожидание доставки + бланк оплаты) ============ */
+async function openCheckoutById(orderId){
+  try{
+    const order = await api(`/orders/${orderId}/`);
+    openCheckout(order);
+  }catch(err){ showError(err); }
+}
+function openCheckout(order){
+  state.checkoutOrder = order;
+  state.checkoutTimeMode = 'asap';
+  showPage('.page[data-page="checkout"]');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  const catEl = document.querySelector('.nav-item[data-tab="catalog"]'); if(catEl) catEl.classList.add('active');
+  window.scrollTo(0,0);
+  renderCheckout();
+  startCheckoutPolling();
+}
+function leaveCheckout(){
+  stopCheckoutPolling();
+  goTab('orders');
+}
+function startCheckoutPolling(){
+  stopCheckoutPolling();
+  state.checkoutPollInterval = setInterval(async ()=>{
+    if(!document.querySelector('.page[data-page="checkout"]').classList.contains('active') || !state.checkoutOrder){
+      stopCheckoutPolling(); return;
+    }
+    try{
+      const order = await api(`/orders/${state.checkoutOrder.id}/`);
+      const changed = JSON.stringify(order) !== JSON.stringify(state.checkoutOrder);
+      state.checkoutOrder = order;
+      if(changed) renderCheckout();
+    }catch(err){ /* тихо игнорируем разовый сбой опроса */ }
+  }, 4000);
+}
+function stopCheckoutPolling(){
+  if(state.checkoutPollInterval){ clearInterval(state.checkoutPollInterval); state.checkoutPollInterval = null; }
+}
+function setCheckoutTimeMode(mode){
+  state.checkoutTimeMode = mode;
+  document.querySelectorAll('.time-toggle-btn').forEach(b=>b.classList.toggle('active', b.dataset.timeMode===mode));
+  const timeInputWrap = document.getElementById('coTimeValueWrap');
+  if(timeInputWrap) timeInputWrap.style.display = mode==='specific' ? 'block' : 'none';
+}
+function renderCheckout(){
+  const el = document.getElementById('checkoutContent');
+  const o = state.checkoutOrder;
+  if(!o){ el.innerHTML = `<div class="empty-state">404</div>`; return; }
+
+  const itemsHtml = o.items.map(it=> `<div class="total-row" style="padding:4px 0;font-size:13px;">
+      <span>${it.product ? pname(it.product) : 'Товар'} × ${it.quantity}</span><span>${fmt(it.line_total)}</span>
+    </div>`).join('');
+
+  const header = `
+    <div class="info-card" style="margin-bottom:12px;">
+      <div class="total-row" style="padding-top:0;"><span style="font-weight:700;">${t('order_number')} №${o.order_number}</span><span class="status-pill">${modeLabel(o.mode)}</span></div>
+      <div style="padding:0 16px;">${itemsHtml}</div>
+      <div class="total-row" style="padding-bottom:0;"><span>${t('goods')}</span><span>${fmt(o.total - (o.delivery_quoted ? o.delivery_fee : 0))}</span></div>
+      ${o.mode==='delivery' ? `<div class="total-row" style="padding-top:0;padding-bottom:0;font-size:13.5px;color:var(--text-2);"><span>${t('delivery')}</span><span>${o.delivery_quoted ? fmt(o.delivery_fee) : t('awaiting_calc')}</span></div>` : ''}
+      <div class="total-row" style="padding-top:6px;font-weight:800;font-size:15.5px;"><span>${t('total')}</span><span>${fmt(o.total)}</span></div>
+    </div>`;
+
+  // 1) Доставка выбрана, но админ ещё не указал стоимость — бланк не показываем.
+  if(o.awaiting_delivery_quote){
+    el.innerHTML = header + `
+      <div class="checkout-wait">
+        <div class="checkout-spinner"></div>
+        <div style="font-weight:700;font-size:15px;">${t('co_waiting_title')}</div>
+        <div style="color:var(--text-2);font-size:13px;max-width:280px;">${t('co_waiting_text')}</div>
+      </div>`;
+    return;
+  }
+
+  // 2) Клиент уже отправил данные — заказ оформлен, оплата на месте (без предоплаты).
+  if(o.blank_submitted){
+    const doneText = o.mode==='delivery' ? t('co_done_text_delivery') : t('co_done_text_pickup');
+    const statusBlock = `<div class="checkout-wait"><div style="font-size:34px;">✅</div><div style="font-weight:700;font-size:15px;">${t('co_done_title')}</div><div style="color:var(--text-2);font-size:13px;max-width:280px;">${doneText}</div></div>`;
+    el.innerHTML = header + statusBlock;
+    return;
+  }
+
+  // 3) Доставка известна (или самовывоз) и данные ещё не отправлены — форма получения (без предоплаты).
+  const pickupInfo = o.mode==='pickup' ? `
+    <div class="pickup-info-card">
+      📍 <b>${t('co_pickup_address')}:</b> ${o.pickup_address || '—'}<br>
+      🕒 <b>${t('co_pickup_hours')}:</b> ${o.pickup_hours || '—'}
+    </div>` : '';
+
+  el.innerHTML = header + `
+    <div class="info-card">
+      ${pickupInfo}
+      <div class="form-field"><label>${t('co_name_label')}</label><input id="coName" placeholder="${t('co_name_ph')}"></div>
+      ${o.mode==='delivery' ? `
+      <div class="form-field"><label>${t('co_address_label')}</label>
+        <textarea id="coAddress" rows="3" placeholder="${t('co_address_ph')}"></textarea>
+      </div>
+      <div class="form-field"><label>${t('co_comment_label')} <span style="font-weight:400;color:var(--text-3);">${t('co_comment_optional')}</span></label><input id="coComment" placeholder="${t('co_comment_ph')}"></div>
+      ` : ''}
+      <div class="form-field">
+        <label>${o.mode==='delivery' ? t('co_time_label_delivery') : t('co_time_label_pickup')}</label>
+        <div class="time-toggle">
+          <button type="button" class="time-toggle-btn active" data-time-mode="asap" onclick="setCheckoutTimeMode('asap')">${t('co_asap')}</button>
+          <button type="button" class="time-toggle-btn" data-time-mode="specific" onclick="setCheckoutTimeMode('specific')">${t('co_specific')}</button>
+        </div>
+        <div id="coTimeValueWrap" style="display:none;margin-top:8px;"><input id="coTimeValue" type="time"></div>
+      </div>
+      <div class="total-row" style="padding:12px 0 4px;font-weight:800;font-size:15.5px;"><span>${t('co_total_onsite')}</span><span>${fmt(o.total)}</span></div>
+      <button class="primary-btn" onclick="submitCheckoutBlank()">${t('co_submit')}</button>
+    </div>`;
+}
+async function submitCheckoutBlank(){
+  const o = state.checkoutOrder;
+  const name = (document.getElementById('coName').value || '').trim();
+  const addressEl = document.getElementById('coAddress');
+  const commentEl = document.getElementById('coComment');
+  let address = addressEl ? (addressEl.value || '').trim() : '';
+  const comment = commentEl ? (commentEl.value || '').trim() : '';
+  if(comment) address = address ? `${address}\nКомментарий курьеру: ${comment}` : `Комментарий курьеру: ${comment}`;
+
+  let desiredTime = 'Как можно скорее';
+  if(state.checkoutTimeMode === 'specific'){
+    const t = document.getElementById('coTimeValue').value;
+    if(!t){ showToast('Укажите желаемое время'); return; }
+    desiredTime = `К ${t}`;
+  }
+
+  if(!name){ showToast('Укажите имя заказчика'); return; }
+  if(o.mode==='delivery' && !address){ showToast('Укажите адрес доставки'); return; }
+
+  try{
+    const updated = await api(`/orders/${o.id}/submit-payment/`, {method:'POST', body:{
+      customer_name: name,
+      delivery_address: address,
+      desired_time: desiredTime
+    }});
+    state.checkoutOrder = updated;
+    showToast('Заказ оформлен');
+    renderCheckout();
+  }catch(err){ showError(err); }
+}
+
+/* ============ ORDERS ============ */
+async function loadOrders(){
+  const list = document.getElementById('ordersList');
+  list.classList.add('is-loading');
+  list.innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
+  try{
+    const data = await api('/orders/');
+    state.orders = data.results || data;
+    renderOrders();
+  }catch(err){ list.innerHTML = `<div class="empty-state">${t('not_found_orders')}</div>`; }
+  finally{ list.classList.remove('is-loading'); }
+}
+function renderOrders(){
+  const list = document.getElementById('ordersList');
+  if(!state.orders.length){
+    list.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2l1 5h10l1-5"/><rect x="4" y="7" width="16" height="14" rx="2"/></svg>
+      ${t('empty_orders')}</div>`;
+    return;
+  }
+  list.innerHTML = state.orders.map(o=>{
+    const steps = o.steps || [];
+    const curIdx = steps.findIndex(s=>s.key===o.status);
+    const done = curIdx === steps.length - 1 && steps.length > 0;
+    const isCancelled = o.status === 'cancelled';
+    const payClass = o.payment_status === 'paid' ? 'paid' : (o.payment_status === 'payment_problem' ? 'problem' : 'awaiting');
+    const payBtn = (o.blank_submitted || isCancelled)
+      ? ''
+      : `<button class="pay-btn no-print" style="flex:1;" onclick="openCheckoutById(${o.id})">${o.awaiting_delivery_quote ? t('awaiting_calc') : t('checkout_btn')}</button>`;
+    const manageRow = (o.can_edit || o.can_cancel) ? `
+      <div class="order-actions-row no-print">
+        ${o.can_edit ? `<button class="detail-link" style="flex:1;" onclick="openEditOrder(${o.id})">✏️ ${t('order_edit_btn')}</button>` : ''}
+        ${o.can_cancel ? `<button class="cancel-link" style="flex:1;" onclick="cancelOrder(${o.id})">✕ ${t('order_cancel_btn')}</button>` : ''}
+      </div>` : '';
+    return `<div class="order-card">
+      <div class="order-top">
+        <div><p class="order-id">${t('order_number')} ${o.order_number || ('#'+o.id)}</p><p class="order-date">${new Date(o.created_at).toLocaleDateString(state.lang==='uz'?'uz-UZ':'ru-RU',{day:'numeric',month:'long',year:'numeric'})} · ${modeLabel(o.mode)}</p></div>
+        <span class="status-pill ${done?'done':''} ${isCancelled?'cancelled':''}">${statusLabel(o.status)}</span>
+      </div>
+      <div style="padding:0 16px 8px;"><span class="payment-pill ${payClass}">${payLabel(o.payment_status)}</span></div>
+      <div class="tracker">
+        ${steps.map((s,i)=> `<div class="track-step ${i<=curIdx?'done':''}"><div class="track-line"></div><div class="track-dot"></div><div class="track-label">${statusLabel(s.key)}</div></div>`).join('')}
+      </div>
+      <div class="order-thumbs">
+        ${o.items.map(it=> it.product ? `<div class="order-thumb">${productVisual(it.product)}</div>` : `<div class="order-thumb"></div>`).join('')}
+      </div>
+      <div class="order-total"><span>${t('total')}</span><span>${fmt(o.total)}</span></div>
+      <div style="display:flex;gap:8px;">
+        ${payBtn}
+        <button class="detail-link no-print" style="flex:1;" onclick="showOrderDetails(${o.id})">${t('order_detail_btn')} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+        <button class="detail-link no-print" style="flex:1;" onclick="downloadOrderPDF(${o.id})">${t('download_pdf_btn')} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg></button>
+      </div>
+      ${manageRow}
+    </div>`;
+  }).join('');
+}
+async function cancelOrder(id){
+  if(!confirm(t('order_cancel_confirm'))) return;
+  try{
+    const updated = await api(`/orders/${id}/cancel/`, {method:'POST'});
+    const idx = state.orders.findIndex(o=>o.id===id);
+    if(idx>=0) state.orders[idx] = updated;
+    renderOrders();
+    showToast(t('order_cancelled_toast'));
+  }catch(err){ showError(err); }
+}
+function openEditOrder(id){
+  const o = state.orders.find(x=>x.id===id);
+  if(!o) return;
+  const addressField = o.mode === 'delivery' ? `
+    <div class="form-field"><label>${t('co_address_label')}</label><textarea id="editOrderAddress" rows="3">${o.delivery_address||''}</textarea></div>` : '';
+  document.getElementById('orderDetailContent').innerHTML = `
+    <div class="od-section">
+      <h3>${t('order_edit_title')} №${o.order_number || o.id}</h3>
+      <div class="form-field"><label>${t('co_name_label')}</label><input id="editOrderName" value="${o.customer_name||''}"></div>
+      ${addressField}
+      <div class="form-field"><label>${o.mode==='delivery' ? t('co_time_label_delivery') : t('co_time_label_pickup')}</label><input id="editOrderTime" value="${o.desired_time||''}"></div>
+      <div style="display:flex;gap:10px;margin-top:6px;">
+        <button class="primary-btn" style="flex:1;margin:0;" onclick="saveOrderEdit(${o.id})">${t('save_btn')}</button>
+        <button class="primary-btn outline" style="flex:1;margin:0;" onclick="closeOrderDetails()">${t('cancel_btn')}</button>
+      </div>
+    </div>`;
+  document.getElementById('orderDetailOverlay').classList.add('open');
+}
+async function saveOrderEdit(id){
+  const name = (document.getElementById('editOrderName').value || '').trim();
+  const addressEl = document.getElementById('editOrderAddress');
+  const address = addressEl ? (addressEl.value || '').trim() : undefined;
+  const time = (document.getElementById('editOrderTime').value || '').trim();
+  const body = {};
+  if(name) body.customer_name = name;
+  if(address !== undefined) body.delivery_address = address;
+  if(time) body.desired_time = time;
+  try{
+    const updated = await api(`/orders/${id}/`, {method:'PATCH', body});
+    const idx = state.orders.findIndex(o=>o.id===id);
+    if(idx>=0) state.orders[idx] = updated;
+    closeOrderDetails();
+    renderOrders();
+    showToast(t('order_updated_toast'));
+  }catch(err){ showError(err); }
+}
+/* ============ Подробнее о заказе (модалка с полной инфой) ============ */
+function showOrderDetails(id){
+  const o = state.orders.find(x=>x.id===id);
+  if(!o){ showToast('Заказ не найден'); return; }
+  const c = o.customer || {};
+  const itemsHtml = o.items.map(it=>{
+    const p = it.product;
+    return `<div class="od-item-row">
+      <div class="od-thumb">${p ? productVisual(p) : ''}</div>
+      <div class="od-info">${p ? pname(p) : 'Товар удалён'}<span>${it.quantity} ${p ? p.unit : 'шт'} × ${fmt(it.price)}</span></div>
+      <div style="font-weight:700;font-size:13px;">${fmt(it.line_total)}</div>
+    </div>`;
+  }).join('');
+
+  const itemsTotal = o.total - (o.delivery_quoted ? o.delivery_fee : 0);
+  const deliveryLine = o.mode === 'delivery'
+    ? `<div>Доставка:</div><div>${o.delivery_quoted ? fmt(o.delivery_fee) : 'ожидает расчёта администратором'}</div>`
+    : '';
+  const addressLine = o.mode === 'delivery'
+    ? `<div>Адрес:</div><div style="white-space:pre-line;">${o.delivery_address || '—'}</div>`
+    : `<div>Самовывоз:</div><div>${o.pickup_address || '—'}${o.pickup_hours ? ' · ' + o.pickup_hours : ''}</div>`;
+
+  document.getElementById('orderDetailContent').innerHTML = `
+    <div class="od-section">
+      <h3>Заказ №${o.order_number || o.id}</h3>
+      <div class="od-kv">
+        <div>Дата:</div><div>${new Date(o.created_at).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+        <div>Способ:</div><div>${o.mode_display}</div>
+        <div>Статус:</div><div>${o.status_display}</div>
+        <div>Оплата:</div><div>${o.payment_status_display}</div>
+      </div>
+    </div>
+    <div class="od-section">
+      <h3>Состав заказа</h3>
+      ${itemsHtml}
+    </div>
+    <div class="od-section">
+      <h3>Доставка / получение</h3>
+      <div class="od-kv">
+        ${addressLine}
+        <div>Время:</div><div>${o.desired_time || '—'}</div>
+      </div>
+    </div>
+    <div class="od-section">
+      <h3>Заказчик</h3>
+      <div class="od-kv">
+        <div>Имя:</div><div>${o.customer_name || c.name || '—'}</div>
+        <div>Телефон:</div><div>${c.phone || '—'}</div>
+        <div>Email:</div><div>${c.email || '—'}</div>
+      </div>
+    </div>
+    <div class="od-section">
+      <h3>Итог</h3>
+      <div class="od-kv">
+        <div>Товары:</div><div>${fmt(itemsTotal)}</div>
+        ${deliveryLine}
+        <div style="font-weight:800;">Итого:</div><div style="font-weight:800;">${fmt(o.total)}</div>
+      </div>
+    </div>`;
+  document.getElementById('orderDetailOverlay').classList.add('open');
+}
+function closeOrderDetails(){
+  document.getElementById('orderDetailOverlay').classList.remove('open');
+}
+function formatWeight(kg){
+  if(kg >= 1000) return (kg/1000).toLocaleString('ru-RU', {maximumFractionDigits:2}) + ' т';
+  return kg.toLocaleString('ru-RU', {maximumFractionDigits:1}) + ' кг';
+}
+function buildReceiptHTML(order){
+  const date = new Date(order.created_at).toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric'});
+  const rows = order.items.map((it,i)=>{
+    const p = it.product;
+    const qtyCell = p ? `${it.quantity} ${p.unit} <span style="color:#666;">(${formatWeight(it.line_weight_kg)})</span>` : `${it.quantity}`;
+    return `<tr>
+      <td style="padding:8px 6px;border-bottom:1px solid #ccc;word-break:break-word;">${i+1}</td>
+      <td style="padding:8px 6px;border-bottom:1px solid #ccc;word-break:break-word;">${p ? p.name : 'Товар удалён'}</td>
+      <td style="padding:8px 6px;border-bottom:1px solid #ccc;word-break:break-word;">${qtyCell}</td>
+      <td style="padding:8px 6px;border-bottom:1px solid #ccc;word-break:break-word;">${fmt(it.price)}</td>
+      <td style="padding:8px 6px;border-bottom:1px solid #ccc;text-align:right;word-break:break-word;">${fmt(it.line_total)}</td>
+    </tr>`;
+  }).join('');
+  const c = order.customer || {};
+  // ВАЖНО: у таблицы товаров table-layout:fixed + явные ширины колонок (%).
+  // Без этого при длинных названиях/больших количествах (например «60000 шт»)
+  // браузер расширяет таблицу шире контейнера, а html2canvas обрезает холст
+  // ровно по ширине внешнего div — получается «обрезанный» чек, как на скрине.
+  return `
+  <div style="width:680px;box-sizing:border-box;padding:32px;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;">
+    <div style="font-size:20px;font-weight:800;letter-spacing:0.02em;margin-bottom:2px;">STROYAI — ЗАКАЗ № ${order.order_number || order.id}</div>
+    <div style="font-size:12.5px;color:#444;margin-bottom:16px;">Ремонт и материалы — Ташкент и область</div>
+    <table style="width:100%;table-layout:fixed;font-size:13px;margin-bottom:16px;border-collapse:collapse;">
+      <colgroup><col style="width:130px;"><col></colgroup>
+      <tr><td style="padding:2px 0;color:#444;">Дата:</td><td style="padding:2px 0;font-weight:600;word-break:break-word;">${date}</td></tr>
+      <tr><td style="padding:2px 0;color:#444;">Способ получения:</td><td style="padding:2px 0;font-weight:600;word-break:break-word;">${order.mode_display || ''}</td></tr>
+      <tr><td style="padding:2px 0;color:#444;">Статус:</td><td style="padding:2px 0;font-weight:600;word-break:break-word;">${order.status_display} · ${order.payment_status_display}</td></tr>
+      <tr><td style="padding:2px 0;color:#444;">Клиент:</td><td style="padding:2px 0;font-weight:600;word-break:break-word;">${c.name || 'Клиент'}</td></tr>
+      <tr><td style="padding:2px 0;color:#444;">Телефон:</td><td style="padding:2px 0;font-weight:600;word-break:break-word;">${c.phone || '—'}</td></tr>
+      <tr><td style="padding:2px 0;color:#444;">Адрес:</td><td style="padding:2px 0;font-weight:600;word-break:break-word;">${order.mode==='delivery' ? (order.delivery_address || c.address || '—') : (order.pickup_address || '—')}</td></tr>
+    </table>
+    <table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:12.5px;margin-bottom:6px;">
+      <colgroup><col style="width:5%;"><col style="width:37%;"><col style="width:24%;"><col style="width:16%;"><col style="width:18%;"></colgroup>
+      <thead>
+        <tr style="background:#eee;">
+          <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #000;">№</th>
+          <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #000;">Наименование</th>
+          <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #000;">Кол-во</th>
+          <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #000;">Цена</th>
+          <th style="padding:8px 6px;text-align:right;border-bottom:2px solid #000;">Сумма</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <table style="width:100%;table-layout:fixed;font-size:13px;margin:10px 0 18px;">
+      <colgroup><col><col style="width:160px;"></colgroup>
+      ${order.mode === 'delivery' ? `<tr><td style="text-align:right;padding:2px 6px;color:#444;">Доставка:</td><td style="text-align:right;padding:2px 0;font-weight:600;">${order.delivery_quoted ? fmt(order.delivery_fee) : 'ожидает расчёта'}</td></tr>` : ''}
+      <tr><td style="text-align:right;padding:6px 6px;font-weight:800;font-size:15px;border-top:2px solid #000;">Итого:</td><td style="text-align:right;padding:6px 0;font-weight:800;font-size:15px;border-top:2px solid #000;">${fmt(order.total)}</td></tr>
+    </table>
+    <div style="font-size:13px;font-weight:800;margin-bottom:6px;">ОПЛАТА И ПОЛУЧЕНИЕ</div>
+    <table style="width:100%;table-layout:fixed;font-size:12.5px;color:#000;margin-bottom:18px;">
+      <colgroup><col><col style="width:260px;"></colgroup>
+      <tr><td style="padding:2px 0;">Статус оплаты:</td><td style="text-align:right;padding:2px 0;word-break:break-word;">${order.payment_status_display}</td></tr>
+      <tr><td style="padding:2px 0;">Способ получения:</td><td style="text-align:right;padding:2px 0;word-break:break-word;">${order.mode_display}${order.mode==='delivery' ? ' · ' + DELIVERY_ZONE_LABEL : ''}</td></tr>
+    </table>
+    <div style="text-align:center;font-size:14px;font-weight:800;margin-bottom:4px;">СПАСИБО ЗА ЗАКАЗ!</div>
+    <div style="text-align:center;font-size:11.5px;color:#444;">Поддержка: +998 78 150-00-00</div>
+  </div>`;
+}
+async function downloadOrderPDF(orderId){
+  const order = state.orders.find(o=>o.id===orderId);
+  if(!order){ showToast('Заказ не найден'); return; }
+  if(typeof window.jspdf === 'undefined' || typeof window.html2canvas === 'undefined'){
+    showToast('Не удалось загрузить библиотеку PDF — проверьте интернет-соединение');
+    return;
+  }
+  showToast('Готовим PDF…');
+  const holder = document.createElement('div');
+  holder.style.position = 'fixed';
+  holder.style.left = '-9999px';
+  holder.style.top = '0';
+  holder.innerHTML = buildReceiptHTML(order);
+  document.body.appendChild(holder);
+  try{
+    const target = holder.firstElementChild;
+    // Ширину и окно рендера задаём явно (а не полагаемся на автоопределение
+    // html2canvas) — иначе при офскрин-позиционировании (left:-9999px)
+    // библиотека иногда промахивается с шириной кадра и обрезает контент.
+    const targetWidth = target.scrollWidth;
+    const targetHeight = target.scrollHeight;
+    const canvas = await html2canvas(target, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      width: targetWidth,
+      height: targetHeight,
+      windowWidth: targetWidth,
+      windowHeight: targetHeight
+    });
+    const { jsPDF } = window.jspdf;
+    const imgData = canvas.toDataURL('image/png');
+    // ВАЖНО: страницу делаем стандартного размера A4, а не «по размеру
+    // холста» — нестандартный размер страницы некоторые PDF-просмотрщики
+    // (особенно на телефонах) открывают БЕЗ автоподгонки по ширине, из-за
+    // чего часть чека выглядит обрезанной, хотя в самом файле всё на месте.
+    // Картинку растягиваем на всю ширину страницы и режем по высоте на
+    // несколько страниц, если чек не помещается на одну.
+    const pdf = new jsPDF({unit:'pt', format:'a4'});
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    let heightLeft = imgHeight;
+    let position = 0;
+    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+    while(heightLeft > 0){
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+    pdf.save(`order_receipt_${order.id}.pdf`);
+  }catch(err){
+    showToast('Не удалось сформировать PDF: ' + err.message);
+  }finally{
+    document.body.removeChild(holder);
+  }
+}
+
+/* ============ NOTIFICATIONS ============ */
+function notifIcon(){
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>`;
+}
+async function refreshNotifications(){
+  if(!state.isLoggedIn) return;
+  try{
+    const data = await api('/notifications/');
+    state.notifications = data.results || data;
+    updateBellDot();
+    if(document.querySelector('.page[data-page="notifications"]').classList.contains('active')) renderNotifications();
+  }catch(err){ /* silent */ }
+}
+function renderNotifications(){
+  const list = document.getElementById('notifList');
+  if(!state.notifications.length){ list.innerHTML = `<div class="empty-state">Уведомлений пока нет</div>`; return; }
+  list.innerHTML = state.notifications.map(n=>`
+    <div class="notif-row ${n.is_read?'':'unread'}">
+      <div class="notif-icon">${notifIcon()}</div>
+      <div style="flex:1;">
+        <p class="notif-title">${n.title}</p>
+        <p class="notif-text">${n.text}</p>
+        <p class="notif-time">${new Date(n.created_at).toLocaleString('ru-RU')}</p>
+      </div>
+      ${n.is_read?'':'<div class="notif-dot"></div>'}
+    </div>`).join('');
+}
+async function markAllRead(){
+  try{
+    await api('/notifications/mark-all-read/', {method:'POST', body:{}});
+    state.notifications.forEach(n=>n.is_read=true);
+    renderNotifications();
+    updateBellDot();
+    showToast('Все уведомления отмечены как прочитанные');
+  }catch(err){ showError(err); }
+}
+function updateBellDot(){
+  const hasUnread = state.notifications.some(n=>!n.is_read);
+  const el = document.getElementById('bellDot');
+  if(el) el.style.display = hasUnread ? 'block':'none';
+}
+
+/* ============ SUPPORT ============ */
+async function loadFAQ(){
+  const list = document.getElementById('faqList');
+  list.innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
+  try{
+    const faqs = await api('/faq/', {auth:false});
+    list.innerHTML = faqs.map((f,i)=>`
+      <div class="faq-row" id="faq-${i}" onclick="toggleFAQ(${i})">
+        <div class="faq-q">${f.question} <svg class="faq-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="2" style="transition:transform .2s;"><path d="M9 18l6-6-6-6"/></svg></div>
+        <div class="faq-a">${f.answer}</div>
+      </div>`).join('');
+  }catch(err){ list.innerHTML = `<div class="empty-state">Не удалось загрузить FAQ</div>`; }
+}
+function toggleFAQ(i){ document.getElementById('faq-'+i).classList.toggle('open'); }
+function openChat(){
+  document.getElementById('supportHome').style.display='none';
+  document.getElementById('chatView').style.display='block';
+  if(!state.chatOpened){
+    state.chatOpened = true;
+    appendMsg('bot','Здравствуйте! Я виртуальный помощник поддержки. Чем могу помочь?');
+  }
+}
+function appendMsg(role, text){
+  const wrap = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+async function sendChat(){
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if(!text) return;
+  appendMsg('user', text);
+  input.value = '';
+  try{
+    const data = await api('/support/chat/', {method:'POST', auth:false, body:{message:text}});
+    appendMsg('bot', data.reply);
+  }catch(err){ appendMsg('bot', 'Спасибо за обращение! Наш специалист свяжется с вами в ближайшее время.'); }
+}
+
+/* ============ INIT ============ */
+/* ============ THEME (light/dark) ============ */
+function setTheme(mode){
+  document.documentElement.setAttribute('data-theme', mode);
+  localStorage.setItem('theme', mode);
+  const lightBtn = document.getElementById('themeLightBtn');
+  const darkBtn = document.getElementById('themeDarkBtn');
+  if(lightBtn && darkBtn){
+    lightBtn.classList.toggle('active', mode === 'light');
+    darkBtn.classList.toggle('active', mode === 'dark');
+  }
+}
+function initTheme(){
+  const saved = localStorage.getItem('theme');
+  const mode = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  setTheme(mode);
+}
+
+/* ============ USD EXCHANGE RATE ============ */
+async function loadUsdRate(){
+  const pill = document.getElementById('usdRatePill');
+  const valueEl = document.getElementById('usdRateValue');
+  const CACHE_KEY = 'usdRateCache';
+  const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 часов
+
+  try{
+    const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    if(cached && (Date.now() - cached.ts) < CACHE_TTL_MS){
+      valueEl.textContent = `1$ ≈ ${Math.round(cached.rate).toLocaleString('ru-RU')} сум`;
+      pill.style.display = 'inline-block';
+      return;
+    }
+  }catch(e){ /* ignore corrupt cache */ }
+
+  try{
+    // Публичный бесплатный источник курса, ключ не нужен. Если сервис станет
+    // недоступен — просто замените URL на другой аналогичный.
+    const res = await fetch('https://open.er-api.com/v6/latest/USD');
+    const data = await res.json();
+    const rate = data && data.rates && data.rates.UZS;
+    if(!rate) throw new Error('Нет курса UZS в ответе');
+    localStorage.setItem(CACHE_KEY, JSON.stringify({rate, ts: Date.now()}));
+    valueEl.textContent = `1$ ≈ ${Math.round(rate).toLocaleString('ru-RU')} сум`;
+    pill.style.display = 'inline-block';
+  }catch(err){
+    // Тихо скрываем — курс доллара не критичен для работы сайта.
+    console.warn('Не удалось получить курс доллара:', err.message);
+  }
+}
+
+(async function init(){
+  initTheme();
+  document.querySelectorAll('.lang-switch button').forEach(b=>b.classList.toggle('active', b.dataset.lang===state.lang));
+  applyI18n();
+  renderStyles();
+  document.getElementById('cityLabel').textContent = state.lang === 'uz' ? 'Toshkent' : state.city;
+  renderCityOptions();
+  loadUsdRate();
+  await loadCategories();
+  await loadCatalog();
+  await restoreSession();
+  detectCity();
+})();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+app.db
+internal_secret.txt
+bot_state.json
+.env
