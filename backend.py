@@ -20,6 +20,7 @@ import os
 import re
 import secrets
 import smtplib
+import socket
 import string
 import subprocess
 import sys
@@ -1516,6 +1517,27 @@ def gen_code(n=6):
     return ''.join(secrets.choice(string.digits) for _ in range(n))
 
 
+class _SMTP_IPv4(smtplib.SMTP):
+    """
+    Обычный smtplib.SMTP на некоторых хостингах (в т.ч. Railway) пытается
+    подключиться сначала по IPv6 — если у контейнера нет исходящего IPv6-
+    маршрута, соединение падает мгновенно с [Errno 101] Network is
+    unreachable, и письмо не уходит, хотя логин/пароль полностью верны.
+    Здесь резолвим хост только в IPv4-адрес и подключаемся к нему напрямую,
+    имя хоста (для TLS/SNI в starttls) при этом не теряется.
+    """
+    def _get_socket(self, host, port, timeout):
+        if timeout is not None and not timeout:
+            raise ValueError('non-blocking socket (timeout=0) is not supported')
+        addr_info = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        family, socktype, proto, _canonname, sockaddr = addr_info[0]
+        sock = socket.socket(family, socktype, proto)
+        if timeout is not smtplib._GLOBAL_DEFAULT_TIMEOUT:
+            sock.settimeout(timeout)
+        sock.connect(sockaddr)
+        return sock
+
+
 def send_otp_email(to_address, code):
     """
     Отправляет код подтверждения на настоящую почту через Gmail (App Password).
@@ -1535,7 +1557,7 @@ def send_otp_email(to_address, code):
         msg['From'] = f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>'
         msg['To'] = to_address
 
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT, timeout=10) as server:
+        with _SMTP_IPv4(EMAIL_HOST, EMAIL_PORT, timeout=10) as server:
             server.starttls()
             server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
             server.sendmail(EMAIL_HOST_USER, [to_address], msg.as_string())
