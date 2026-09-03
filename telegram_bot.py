@@ -96,10 +96,15 @@ _load_dotenv()
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '')  # токен от @BotFather
 ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID', '')  # id чата/канала администратора
 
-# Публичный адрес сервиса backend на Railway, например:
-# https://stroyai-backend-production.up.railway.app (БЕЗ / на конце).
-# Локально, если бот и backend на одном компьютере, можно оставить дефолт.
-BACKEND_URL = os.environ.get('BACKEND_URL', 'http://127.0.0.1:8000').rstrip('/')
+# Публичный адрес сервиса backend на Railway. Бот и backend — это два
+# РАЗНЫХ сервиса/контейнера на Railway (без общей сети), поэтому 127.0.0.1
+# тут в принципе не может работать — только полный публичный адрес.
+# Это тот же адрес, что прописан в index.html как API_BASE.
+# Переменной окружения BACKEND_URL на Railway (если она задана) отдаётся
+# приоритет — так адрес можно сменить в одном месте, не трогая код.
+BACKEND_URL = os.environ.get(
+    'BACKEND_URL', 'https://web-production-619ab.up.railway.app'
+).rstrip('/')
 NOTIFICATIONS_POLL_EVERY = 1  # опрашивать backend.py на новые чеки/бланки каждые N циклов getUpdates
 
 # INTERNAL_SECRET можно передать напрямую переменной окружения (нужно на
