@@ -1532,7 +1532,7 @@ class _SMTP_IPv4(smtplib.SMTP):
         addr_info = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
         family, socktype, proto, _canonname, sockaddr = addr_info[0]
         sock = socket.socket(family, socktype, proto)
-        if timeout is not smtplib._GLOBAL_DEFAULT_TIMEOUT:
+        if timeout:
             sock.settimeout(timeout)
         sock.connect(sockaddr)
         return sock
@@ -2910,7 +2910,9 @@ def _start_telegram_bot_subprocess():
         print('[bot] telegram_bot.py не найден рядом с backend.py — бот не запущен.')
         return
     try:
-        _bot_process = subprocess.Popen([sys.executable, bot_path], cwd=BASE_DIR)
+        env = os.environ.copy()
+        env.setdefault('BACKEND_URL', f'http://127.0.0.1:{PORT}')
+        _bot_process = subprocess.Popen([sys.executable, bot_path], cwd=BASE_DIR, env=env)
         print(f'[bot] telegram_bot.py запущен автоматически (pid {_bot_process.pid}).')
     except OSError as e:
         print(f'[bot] Не удалось автоматически запустить telegram_bot.py: {e!r}')
