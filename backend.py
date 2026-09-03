@@ -1,3 +1,6 @@
+xqda vjkm jumq qinz
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -182,7 +185,7 @@ PREPAY_PERCENT_LOW = 30
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_HOST_USER = 'gjjnn05@gmail.com'       # например: 'mystartup@gmail.com'
-EMAIL_HOST_PASSWORD = 'pgsoiczbwmigttka'   # 16-значный пароль приложения из Google, без пробелов
+EMAIL_HOST_PASSWORD = 'xqdavjkmjumqqinz'   # 16-значный пароль приложения из Google, без пробелов
 EMAIL_FROM_NAME = 'StroyAI'
 
 STATUS_LABELS = {
