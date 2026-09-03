@@ -20,7 +20,6 @@ import os
 import re
 import secrets
 import smtplib
-import socket
 import string
 import subprocess
 import sys
@@ -179,12 +178,23 @@ PREPAY_PERCENT_LOW = 30
 #
 # Если оставить пустым — коды по-прежнему будут просто печататься в консоль
 # (как раньше), сайт при этом продолжит работать.
+#
+# ВАЖНО: раньше эти данные были прописаны прямо в коде текстом. Это плохо —
+# любой, кто увидит файл (в архиве, в чате, в публичном репозитории),
+# получает доступ к вашей почте. Теперь их можно (и нужно) задавать через
+# переменные окружения — на Railway это вкладка Variables у сервиса backend:
+#   EMAIL_HOST_USER=ваша-почта@gmail.com
+#   EMAIL_HOST_PASSWORD=шестнадцатизначный-пароль-приложения
+# Если переменные не заданы — используются значения по умолчанию ниже
+# (оставлены для локального запуска), но их СТОИТ ЗАМЕНИТЬ на новые: пароль
+# приложения из предыдущей версии файла уже "засветился" и его нужно
+# отозвать на https://myaccount.google.com/apppasswords и выпустить новый.
 # ---------------------------------------------------------------------------
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_HOST_USER = 'gjjnn05@gmail.com'       # например: 'mystartup@gmail.com'
-EMAIL_HOST_PASSWORD = 'xqdavjkmjumqqinz'   # 16-значный пароль приложения из Google, без пробелов
-EMAIL_FROM_NAME = 'StroyAI'
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gjjnn05@gmail.com')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'dyvnaanzuspsmevx')
+EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'StroyAI')
 
 STATUS_LABELS = {
     'processing': 'В обработке',
@@ -1517,42 +1527,6 @@ def gen_code(n=6):
     return ''.join(secrets.choice(string.digits) for _ in range(n))
 
 
-class _SMTP_IPv4(smtplib.SMTP):
-    """
-    Обычный smtplib.SMTP на некоторых хостингах (в т.ч. Railway) пытается
-    подключиться сначала по IPv6 — если у контейнера нет исходящего IPv6-
-    маршрута, соединение падает мгновенно с [Errno 101] Network is
-    unreachable, и письмо не уходит, хотя логин/пароль полностью верны.
-    Здесь резолвим хост только в IPv4-адрес и подключаемся к нему напрямую,
-    имя хоста (для TLS/SNI в starttls) при этом не теряется.
-    """
-    def _get_socket(self, host, port, timeout):
-        if timeout is not None and not timeout:
-            raise ValueError('non-blocking socket (timeout=0) is not supported')
-        addr_info = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
-        family, socktype, proto, _canonname, sockaddr = addr_info[0]
-        sock = socket.socket(family, socktype, proto)
-        if timeout:
-            sock.settimeout(timeout)
-        sock.connect(sockaddr)
-        return sock
-
-
-class _SMTP_SSL_IPv4(smtplib.SMTP_SSL):
-    """То же самое, но для порта 465 (SMTPS) — используется как запасной
-    вариант, если 587 (STARTTLS) заблокирован/недоступен на хостинге."""
-    def _get_socket(self, host, port, timeout):
-        if timeout is not None and not timeout:
-            raise ValueError('non-blocking socket (timeout=0) is not supported')
-        addr_info = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
-        family, socktype, proto, _canonname, sockaddr = addr_info[0]
-        raw = socket.socket(family, socktype, proto)
-        if timeout:
-            raw.settimeout(timeout)
-        raw.connect(sockaddr)
-        return self.context.wrap_socket(raw, server_hostname=host)
-
-
 def send_otp_email(to_address, code):
     """
     Отправляет код подтверждения на настоящую почту через Gmail (App Password).
@@ -1561,35 +1535,46 @@ def send_otp_email(to_address, code):
     чтобы тестировать можно было в любом случае).
     """
     if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD:
+        print('[email] EMAIL_HOST_USER/EMAIL_HOST_PASSWORD не заданы — письмо не отправлено, код только в консоли.')
         return False
+    try:
+        msg = MIMEText(
+            f'Ваш код подтверждения: {code}\n\nОн действует 5 минут.\n\n'
+            f'Если вы не запрашивали вход — просто проигнорируйте это письмо.',
+            'plain', 'utf-8'
+        )
+        msg['Subject'] = f'Код подтверждения: {code}'
+        msg['From'] = f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>'
+        msg['To'] = to_address
 
-    msg = MIMEText(
-        f'Ваш код подтверждения: {code}\n\nОн действует 5 минут.\n\n'
-        f'Если вы не запрашивали вход — просто проигнорируйте это письмо.',
-        'plain', 'utf-8'
-    )
-    msg['Subject'] = f'Код подтверждения: {code}'
-    msg['From'] = f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>'
-    msg['To'] = to_address
-
-    # Пробуем 587 (STARTTLS), если порт заблокирован хостингом (timeout) —
-    # сразу пробуем 465 (SMTPS) запасным вариантом.
-    attempts = [(_SMTP_IPv4, 587, False), (_SMTP_SSL_IPv4, 465, True)]
-    last_error = None
-    for smtp_cls, port, is_ssl in attempts:
-        try:
-            with smtp_cls(EMAIL_HOST, port, timeout=10) as server:
-                if not is_ssl:
-                    server.starttls()
-                server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
-                server.sendmail(EMAIL_HOST_USER, [to_address], msg.as_string())
-            return True
-        except Exception as e:  # noqa: BLE001 — пробуем следующий вариант
-            last_error = e
-            continue
-
-    print(f'[email] Не удалось отправить письмо на {to_address}: {last_error}')
-    return False
+        # timeout увеличен до 20с — на бесплатных тарифах Railway первое
+        # SMTP-соединение до Gmail иногда устанавливается дольше 10с.
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT, timeout=20) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+            server.sendmail(EMAIL_HOST_USER, [to_address], msg.as_string())
+        print(f'[email] Письмо с кодом успешно отправлено на {to_address}.')
+        return True
+    except smtplib.SMTPAuthenticationError as e:
+        # Самая частая причина: пароль приложения неверный/отозван, либо
+        # для аккаунта EMAIL_HOST_USER отключена двухфакторная аутентификация
+        # (без неё Google не принимает пароли приложений вообще).
+        print(f'[email] ОШИБКА АВТОРИЗАЦИИ на {EMAIL_HOST_USER}: {e}. '
+              f'Проверьте: 1) включена ли двухфакторная аутентификация на этом '
+              f'аккаунте Google; 2) не отозван ли пароль приложения на '
+              f'https://myaccount.google.com/apppasswords; 3) выпустите новый '
+              f'пароль приложения и обновите переменную EMAIL_HOST_PASSWORD.')
+        return False
+    except (smtplib.SMTPException, OSError) as e:  # noqa: BLE001
+        print(f'[email] Не удалось отправить письмо на {to_address} '
+              f'({type(e).__name__}): {e}')
+        return False
+    except Exception as e:  # noqa: BLE001 — не роняем сервер из-за проблем с почтой
+        print(f'[email] Неожиданная ошибка при отправке на {to_address} '
+              f'({type(e).__name__}): {e}')
+        return False
 
 
 def gen_token():
@@ -2840,22 +2825,6 @@ class Handler(BaseHTTPRequestHandler):
                 conn.commit()
                 return {'detail': 'ok'}
 
-            # Список товаров с закупочной ценой/заводом — для вкладки
-            # «Закупочные цены» на странице Финансы.
-            if p == '/admin/finance/products/' and method == 'GET':
-                rows = conn.execute(
-                    'SELECT p.id, p.name, p.base_price, p.buy_price, f.name AS factory_name '
-                    'FROM products p LEFT JOIN factories f ON f.id = p.factory_id '
-                    'ORDER BY p.name'
-                ).fetchall()
-                return [{
-                    'id': r['id'],
-                    'name': r['name'],
-                    'sell_price': r['base_price'],
-                    'buy_price': r['buy_price'],
-                    'factory_name': r['factory_name'],
-                } for r in rows]
-
             m = re.match(r'^/admin/finance/products/(\d+)/$', p)
             if m and method == 'POST':
                 product = conn.execute('SELECT * FROM products WHERE id=%s', (m.group(1),)).fetchone()
@@ -2951,9 +2920,7 @@ def _start_telegram_bot_subprocess():
         print('[bot] telegram_bot.py не найден рядом с backend.py — бот не запущен.')
         return
     try:
-        env = os.environ.copy()
-        env.setdefault('BACKEND_URL', f'http://127.0.0.1:{PORT}')
-        _bot_process = subprocess.Popen([sys.executable, bot_path], cwd=BASE_DIR, env=env)
+        _bot_process = subprocess.Popen([sys.executable, bot_path], cwd=BASE_DIR)
         print(f'[bot] telegram_bot.py запущен автоматически (pid {_bot_process.pid}).')
     except OSError as e:
         print(f'[bot] Не удалось автоматически запустить telegram_bot.py: {e!r}')
@@ -2985,7 +2952,13 @@ def main():
     print(f'Сайт:   http://127.0.0.1:{PORT}/')
     print(f'API:    http://127.0.0.1:{PORT}/api/health/')
     print(f'База данных: PostgreSQL ({"подключено" if DATABASE_URL else "DATABASE_URL не задан!"})')
-    print('Коды подтверждения (OTP) будут печататься прямо сюда, в консоль.')
+    if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+        _masked = EMAIL_HOST_USER[:2] + '***' + EMAIL_HOST_USER[EMAIL_HOST_USER.find('@'):]
+        print(f'Email OTP: настроен, отправитель {_masked} через {EMAIL_HOST}:{EMAIL_PORT}. '
+              f'Если письма не доходят — смотрите строки "[email] ..." ниже в логах.')
+    else:
+        print('Email OTP: НЕ настроен (нет EMAIL_HOST_USER/EMAIL_HOST_PASSWORD) — коды печатаются в консоль.')
+    print('Коды подтверждения (OTP) в любом случае дублируются прямо сюда, в консоль, если письмо не ушло.')
     print('-' * 60)
     atexit.register(_stop_telegram_bot_subprocess)
     _start_telegram_bot_subprocess()
