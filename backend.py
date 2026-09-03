@@ -1538,6 +1538,21 @@ class _SMTP_IPv4(smtplib.SMTP):
         return sock
 
 
+class _SMTP_SSL_IPv4(smtplib.SMTP_SSL):
+    """То же самое, но для порта 465 (SMTPS) — используется как запасной
+    вариант, если 587 (STARTTLS) заблокирован/недоступен на хостинге."""
+    def _get_socket(self, host, port, timeout):
+        if timeout is not None and not timeout:
+            raise ValueError('non-blocking socket (timeout=0) is not supported')
+        addr_info = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        family, socktype, proto, _canonname, sockaddr = addr_info[0]
+        raw = socket.socket(family, socktype, proto)
+        if timeout:
+            raw.settimeout(timeout)
+        raw.connect(sockaddr)
+        return self.context.wrap_socket(raw, server_hostname=host)
+
+
 def send_otp_email(to_address, code):
     """
     Отправляет код подтверждения на настоящую почту через Gmail (App Password).
@@ -1547,24 +1562,34 @@ def send_otp_email(to_address, code):
     """
     if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD:
         return False
-    try:
-        msg = MIMEText(
-            f'Ваш код подтверждения: {code}\n\nОн действует 5 минут.\n\n'
-            f'Если вы не запрашивали вход — просто проигнорируйте это письмо.',
-            'plain', 'utf-8'
-        )
-        msg['Subject'] = f'Код подтверждения: {code}'
-        msg['From'] = f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>'
-        msg['To'] = to_address
 
-        with _SMTP_IPv4(EMAIL_HOST, EMAIL_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
-            server.sendmail(EMAIL_HOST_USER, [to_address], msg.as_string())
-        return True
-    except Exception as e:  # noqa: BLE001 — не роняем сервер из-за проблем с почтой
-        print(f'[email] Не удалось отправить письмо на {to_address}: {e}')
-        return False
+    msg = MIMEText(
+        f'Ваш код подтверждения: {code}\n\nОн действует 5 минут.\n\n'
+        f'Если вы не запрашивали вход — просто проигнорируйте это письмо.',
+        'plain', 'utf-8'
+    )
+    msg['Subject'] = f'Код подтверждения: {code}'
+    msg['From'] = f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>'
+    msg['To'] = to_address
+
+    # Пробуем 587 (STARTTLS), если порт заблокирован хостингом (timeout) —
+    # сразу пробуем 465 (SMTPS) запасным вариантом.
+    attempts = [(_SMTP_IPv4, 587, False), (_SMTP_SSL_IPv4, 465, True)]
+    last_error = None
+    for smtp_cls, port, is_ssl in attempts:
+        try:
+            with smtp_cls(EMAIL_HOST, port, timeout=10) as server:
+                if not is_ssl:
+                    server.starttls()
+                server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+                server.sendmail(EMAIL_HOST_USER, [to_address], msg.as_string())
+            return True
+        except Exception as e:  # noqa: BLE001 — пробуем следующий вариант
+            last_error = e
+            continue
+
+    print(f'[email] Не удалось отправить письмо на {to_address}: {last_error}')
+    return False
 
 
 def gen_token():
@@ -2814,6 +2839,22 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute('UPDATE factories SET telegram_chat_id=%s WHERE id=%s', (chat_id or None, factory['id']))
                 conn.commit()
                 return {'detail': 'ok'}
+
+            # Список товаров с закупочной ценой/заводом — для вкладки
+            # «Закупочные цены» на странице Финансы.
+            if p == '/admin/finance/products/' and method == 'GET':
+                rows = conn.execute(
+                    'SELECT p.id, p.name, p.base_price, p.buy_price, f.name AS factory_name '
+                    'FROM products p LEFT JOIN factories f ON f.id = p.factory_id '
+                    'ORDER BY p.name'
+                ).fetchall()
+                return [{
+                    'id': r['id'],
+                    'name': r['name'],
+                    'sell_price': r['base_price'],
+                    'buy_price': r['buy_price'],
+                    'factory_name': r['factory_name'],
+                } for r in rows]
 
             m = re.match(r'^/admin/finance/products/(\d+)/$', p)
             if m and method == 'POST':
