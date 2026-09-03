@@ -232,14 +232,6 @@ class PGCursorWrapper:
     def __iter__(self):
         return iter(self._raw)
 
-    @property
-    def rowcount(self):
-        # Сколько строк реально задел последний UPDATE/DELETE — нужно,
-        # например, чтобы понять, что чей-то повторный ответ на уже
-        # отвеченный запрос стоимости доставки ни на что не повлиял
-        # (см. set-delivery-quote).
-        return self._raw.rowcount
-
 
 class PGConnWrapper:
     """Тонкая обёртка над psycopg2-соединением, чтобы код ниже (написанный
@@ -543,22 +535,6 @@ SCHEMA_STATEMENTS = [
         key TEXT PRIMARY KEY,
         value TEXT
     )''',
-    # Стоимость доставки теперь считается по частям — если в заказе товары
-    # НЕСКОЛЬКИХ заводов, у каждого завода директор указывает стоимость
-    # доставки СВОЕЙ части лично боту, и только когда ответили ВСЕ —
-    # итоговая доставка (сумма их ответов) применяется к заказу. Одна
-    # строка = один ожидаемый/полученный ответ одного завода по одному
-    # заказу. factory_id может быть NULL — «без завода» (для товаров без
-    # привязки к заводу), такие тогда спрашиваются в общем канале, а не в
-    # личке директора.
-    '''CREATE TABLE IF NOT EXISTS order_delivery_quotes(
-        id SERIAL PRIMARY KEY,
-        order_id INTEGER NOT NULL REFERENCES orders(id),
-        factory_id INTEGER REFERENCES factories(id),
-        factory_name TEXT NOT NULL,
-        amount DOUBLE PRECISION,
-        created_at TEXT NOT NULL
-    )''',
 ]
 
 
@@ -600,9 +576,6 @@ def init_db():
         # Так админ может позже осознанно поставить 0, и это не перетрётся повторным запуском.
         "ALTER TABLE products ADD COLUMN IF NOT EXISTS buy_price DOUBLE PRECISION",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TEXT",
-        # Личка директора завода в Telegram — куда бот шлёт запрос «впишите
-        # стоимость доставки вашей части», когда в заказе есть его товары.
-        "ALTER TABLE factories ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT",
         # --- дедупликация корзины ---
         # На проде уже могли накопиться дубли cart_items на один и тот же
         # товар (из-за гонки при двойном клике "в корзину" в старой версии
@@ -1074,47 +1047,6 @@ def get_or_create_factory(conn, name):
     return cur.lastrowid
 
 
-def create_delivery_quotes_for_order(conn, order_id):
-    """Заказ создан в режиме «Доставка» — смотрим, товары СКОЛЬКИХ разных
-    заводов в нём, и заводим по одной ожидающей строке на каждый завод.
-    Каждый директор потом впишет стоимость доставки своей части лично
-    боту (см. order_delivery_quotes) — итоговая доставка = сумма их
-    ответов, применяется автоматически, когда ответили ВСЕ (см.
-    set-delivery-quote в /internal/)."""
-    rows = conn.execute(
-        'SELECT DISTINCT p.factory_id, COALESCE(f.name, \'Без завода\') AS factory_name '
-        'FROM order_items oi JOIN products p ON p.id = oi.product_id '
-        'LEFT JOIN factories f ON f.id = p.factory_id WHERE oi.order_id=%s',
-        (order_id,)
-    ).fetchall()
-    for r in rows:
-        conn.execute(
-            'INSERT INTO order_delivery_quotes(order_id, factory_id, factory_name, amount, created_at) '
-            'VALUES (%s,%s,%s,NULL,%s)',
-            (order_id, r['factory_id'], r['factory_name'], now_iso())
-        )
-    conn.commit()
-
-
-def delivery_quotes_to_json(conn, order_id):
-    rows = conn.execute(
-        'SELECT q.id, q.factory_id, q.factory_name, q.amount, f.telegram_chat_id '
-        'FROM order_delivery_quotes q LEFT JOIN factories f ON f.id = q.factory_id '
-        'WHERE q.order_id=%s ORDER BY q.id ASC',
-        (order_id,)
-    ).fetchall()
-    return [
-        {
-            'factory_id': r['factory_id'],
-            'factory_name': r['factory_name'],
-            'telegram_chat_id': r['telegram_chat_id'],
-            'amount': r['amount'],
-            'submitted': r['amount'] is not None,
-        }
-        for r in rows
-    ]
-
-
 def _backfill_finance_defaults(conn):
     rows = conn.execute('SELECT id, brand FROM products WHERE factory_id IS NULL').fetchall()
     for r in rows:
@@ -1224,16 +1156,6 @@ def _finance_snapshot_order_items(conn, order):
         'LEFT JOIN factories f ON f.id = p.factory_id '
         'WHERE oi.order_id=%s', (order['id'],)
     ).fetchall()
-    if not items:
-        return
-    # Раньше здесь был INSERT ВНУТРИ ЦИКЛА — отдельный запрос к базе на КАЖДУЮ
-    # позицию заказа. Именно это и делало подтверждение оплаты из админки
-    # таким долгим (8-10 сек): один клик "Отметить оплаченным" внутри себя
-    # запускал по запросу на каждый товар в заказе. Теперь — один INSERT
-    # с несколькими VALUES сразу на весь заказ, независимо от числа позиций.
-    now = now_iso()
-    value_groups = []
-    params = []
     for it in items:
         qty = it['quantity'] or 0
         sell_price = it['price'] or 0
@@ -1242,18 +1164,14 @@ def _finance_snapshot_order_items(conn, order):
         buy_price = it['buy_price'] if it['buy_price'] is not None else sell_price
         line_sell = sell_price * qty
         line_buy = buy_price * qty
-        value_groups.append('(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)')
-        params.extend([
-            order['id'], it['product_id'], it['p_name'] or 'Товар', it['factory_id'],
-            it['factory_name'] or 'Без завода', qty, buy_price, sell_price, line_buy, line_sell,
-            line_sell - line_buy, now,
-        ])
-    conn.execute(
-        'INSERT INTO finance_order_snapshots(order_id, product_id, product_name, factory_id, factory_name, '
-        'qty, buy_price, sell_price, line_buy_total, line_sell_total, line_margin, created_at) VALUES '
-        + ','.join(value_groups),
-        params
-    )
+        conn.execute(
+            'INSERT INTO finance_order_snapshots(order_id, product_id, product_name, factory_id, factory_name, '
+            'qty, buy_price, sell_price, line_buy_total, line_sell_total, line_margin, created_at) '
+            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            (order['id'], it['product_id'], it['p_name'] or 'Товар', it['factory_id'],
+             it['factory_name'] or 'Без завода', qty, buy_price, sell_price, line_buy, line_sell,
+             line_sell - line_buy, now_iso())
+        )
 
 
 def _finance_insert_income(conn, order, amount, event_id, note):
@@ -1434,44 +1352,11 @@ def finance_by_factory(conn, ts_from, ts_to):
     }
 
 
-def _batch_categories(conn, category_ids):
-    """Одним запросом получает категории для целого списка товаров — вместо
-    отдельного SELECT на каждый товар в цикле. Критично при высокой задержке
-    до базы (например, подключение из Узбекистана к Neon в США): один лишний
-    запрос на КАЖДЫЙ товар каталога/корзины/заказа умножает время ожидания
-    на количество позиций."""
-    ids = list({cid for cid in category_ids if cid is not None})
-    if not ids:
-        return {}
-    rows = conn.execute('SELECT id, name, name_uz, slug FROM categories WHERE id = ANY(%s)', (ids,)).fetchall()
-    return {r['id']: r for r in rows}
-
-
-def _batch_review_stats(conn, product_ids):
-    """Аналогично — количество и средний рейтинг отзывов для целого списка
-    товаров одним запросом вместо одного на товар."""
-    ids = list({pid for pid in product_ids if pid is not None})
-    if not ids:
-        return {}
-    rows = conn.execute(
-        'SELECT product_id, COUNT(*) c, AVG(rating) avg_r FROM reviews '
-        'WHERE product_id = ANY(%s) GROUP BY product_id', (ids,)
-    ).fetchall()
-    return {r['product_id']: r for r in rows}
-
-
-def product_to_json(conn, row, mode='delivery', category=None, review_stats=None):
-    # category/review_stats можно передать заранее (см. _batch_categories,
-    # _batch_review_stats) — тогда лишних запросов к базе не будет вообще.
-    # Если не передали (одиночный лукап одного товара) — считаем как раньше.
-    if category is None:
-        category = conn.execute(
-            'SELECT id, name, name_uz, slug FROM categories WHERE id=%s', (row['category_id'],)
-        ).fetchone()
-    if review_stats is None:
-        review_stats = conn.execute(
-            'SELECT COUNT(*) c, AVG(rating) avg_r FROM reviews WHERE product_id=%s', (row['id'],)
-        ).fetchone()
+def product_to_json(conn, row, mode='delivery'):
+    cat = conn.execute('SELECT id, name, name_uz, slug FROM categories WHERE id=%s', (row['category_id'],)).fetchone()
+    review_stats = conn.execute(
+        'SELECT COUNT(*) c, AVG(rating) avg_r FROM reviews WHERE product_id=%s', (row['id'],)
+    ).fetchone()
     reviews_count = review_stats['c']
     # Пока у товара нет ни одного отзыва — показываем 5.0. Как только появляются
     # реальные отзывы от покупателей — рейтинг считается как их среднее.
@@ -1496,7 +1381,7 @@ def product_to_json(conn, row, mode='delivery', category=None, review_stats=None
         'specs_uz': json.loads(row['specs_json_uz']) if row['specs_json_uz'] else None,
         'image': row['image'],
         'in_stock': bool(row['in_stock']),
-        'category': {'id': category['id'], 'name': category['name'], 'name_uz': category['name_uz'], 'slug': category['slug']},
+        'category': {'id': cat['id'], 'name': cat['name'], 'name_uz': cat['name_uz'], 'slug': cat['slug']},
         'created_at': row['created_at'],
     }
 
@@ -1563,23 +1448,12 @@ def cart_to_json(conn, user_id, mode='delivery'):
         'SELECT ci.id as item_id, ci.quantity, p.* FROM cart_items ci '
         'JOIN products p ON p.id = ci.product_id WHERE ci.user_id=%s', (user_id,)
     ).fetchall()
-    # Раньше каждая позиция корзины делала ЕЩЁ 2 отдельных запроса
-    # (категория + статистика отзывов) внутри product_to_json — при высокой
-    # задержке до базы (например, подключение из другой страны) это и
-    # превращало добавление товара в корзину в 5-10 секунд ожидания.
-    # Забираем то же самое двумя запросами на ВСЮ корзину сразу.
-    categories = _batch_categories(conn, (r['category_id'] for r in rows))
-    review_stats = _batch_review_stats(conn, (r['id'] for r in rows))
     items = []
     total = 0
     count = 0
     weight_total = 0.0
     for r in rows:
-        p = product_to_json(
-            conn, r, mode=mode,
-            category=categories.get(r['category_id']),
-            review_stats=review_stats.get(r['id']) or {'c': 0, 'avg_r': None},
-        )
+        p = product_to_json(conn, r, mode=mode)
         line_total = p['price'] * r['quantity']
         total += line_total
         count += r['quantity']
@@ -1605,28 +1479,11 @@ def cart_to_json(conn, user_id, mode='delivery'):
 
 def order_to_json(conn, row):
     items = conn.execute('SELECT * FROM order_items WHERE order_id=%s', (row['id'],)).fetchall()
-    # Раньше на КАЖДУЮ позицию заказа уходило по 3 отдельных запроса (сам
-    # товар + его категория + статистика отзывов) — заказ с несколькими
-    # разными товарами превращался в десятки последовательных обращений
-    # к базе. Теперь — то же самое общим числом запросов, не зависящим от
-    # количества позиций: один на все товары сразу, ещё два батчем на их
-    # категории/отзывы.
-    product_ids = list({it['product_id'] for it in items})
-    products_map = {}
-    if product_ids:
-        prows = conn.execute('SELECT * FROM products WHERE id = ANY(%s)', (product_ids,)).fetchall()
-        products_map = {p['id']: p for p in prows}
-    categories = _batch_categories(conn, (p['category_id'] for p in products_map.values()))
-    review_stats = _batch_review_stats(conn, product_ids)
     item_list = []
     for it in items:
-        prow = products_map.get(it['product_id'])
+        prow = conn.execute('SELECT * FROM products WHERE id=%s', (it['product_id'],)).fetchone()
         item_list.append({
-            'product': product_to_json(
-                conn, prow,
-                category=categories.get(prow['category_id']) if prow else None,
-                review_stats=(review_stats.get(it['product_id']) or {'c': 0, 'avg_r': None}) if prow else None,
-            ) if prow else None,
+            'product': product_to_json(conn, prow) if prow else None,
             'quantity': it['quantity'],
             'price': it['price'],
             'weight_kg': it['weight_kg'],
@@ -1652,7 +1509,6 @@ def order_to_json(conn, row):
     estimated_delivery_fee = None
     if awaiting_delivery_quote:
         estimated_delivery_fee, _ = calc_delivery_fee(weight_total)
-    delivery_quotes = delivery_quotes_to_json(conn, row['id']) if mode == 'delivery' else []
 
     steps = [{'key': k, 'label': STATUS_LABELS[k]} for k in order_step_keys(row)]
 
@@ -1674,7 +1530,6 @@ def order_to_json(conn, row):
         'delivery_quoted': delivery_quoted,
         'awaiting_delivery_quote': awaiting_delivery_quote,
         'estimated_delivery_fee': estimated_delivery_fee,
-        'delivery_quotes': delivery_quotes,
         'blank_submitted': blank_submitted,
         'can_pay': can_pay,
         'can_cancel': can_cancel_order(row),
@@ -1764,10 +1619,10 @@ class Handler(BaseHTTPRequestHandler):
         self._write_body(body)
 
     def _read_json_body(self):
-        # Тело уже целиком прочитано в _route() (см. комментарий там) —
-        # здесь только парсим то, что уже лежит в буфере, повторно к сокету
-        # не обращаемся.
-        raw = getattr(self, '_raw_body', b'')
+        length = int(self.headers.get('Content-Length', 0) or 0)
+        if length == 0:
+            return {}
+        raw = self.rfile.read(length)
         if not raw:
             return {}
         try:
@@ -1834,12 +1689,6 @@ class Handler(BaseHTTPRequestHandler):
         # СЛЕДУЮЩИЙ запрос на том же переиспользуемом соединении — именно
         # это могло быть причиной "каталог грузится вечно" после нескольких
         # предыдущих запросов на странице.
-        try:
-            content_length = int(self.headers.get('Content-Length', 0) or 0)
-        except ValueError:
-            content_length = 0
-        self._raw_body = self.rfile.read(content_length) if content_length > 0 else b''
-
         # Сайт: отдаём index.html на главной и на всём, что не начинается с /api
         if not path.startswith('/api/'):
             if path in ('/admin', '/admin/'):
@@ -1914,20 +1763,7 @@ class Handler(BaseHTTPRequestHandler):
             sql += ' ORDER BY p.id'
             rows = conn.execute(sql, params).fetchall()
             mode = (query.get('mode') or ['delivery'])[0]
-            # Было: 2 отдельных запроса НА КАЖДЫЙ товар (категория + отзывы)
-            # внутри product_to_json — для каталога из ~28 товаров это ~57
-            # последовательных обращений к базе. При задержке до Neon
-            # в доли секунды на каждый запрос это и превращало открытие
-            # каталога в "грузится вечно". Теперь — 2 запроса на весь каталог.
-            categories = _batch_categories(conn, (r['category_id'] for r in rows))
-            review_stats = _batch_review_stats(conn, (r['id'] for r in rows))
-            return [
-                product_to_json(
-                    conn, r, mode=mode,
-                    category=categories.get(r['category_id']),
-                    review_stats=review_stats.get(r['id']) or {'c': 0, 'avg_r': None},
-                ) for r in rows
-            ]
+            return [product_to_json(conn, r, mode=mode) for r in rows]
 
         m = re.match(r'^/products/(\d+)/$', p)
         if m and method == 'GET':
@@ -2189,10 +2025,6 @@ class Handler(BaseHTTPRequestHandler):
                     'INSERT INTO order_items(order_id, product_id, quantity, price, weight_kg) VALUES (%s,%s,%s,%s,%s)',
                     (order_id, product_id, qty, unit_price, weight_kg)
                 )
-            if order_mode == 'delivery':
-                # По одному «ожидающему» запросу цены доставки на каждый
-                # завод, чьи товары попали в заказ — см. create_delivery_quotes_for_order.
-                create_delivery_quotes_for_order(conn, order_id)
             conn.execute('DELETE FROM cart_items WHERE user_id=%s', (user['id'],))
             # Чек сразу уходит администратору в Telegram-бота (пункт 2 ТЗ) —
             # кладём в очередь bot_outbox, telegram_bot.py заберёт его при
@@ -2456,42 +2288,6 @@ class Handler(BaseHTTPRequestHandler):
                 order = conn.execute('SELECT * FROM orders WHERE id=%s', (order['id'],)).fetchone()
                 return order_to_json(conn, order)
 
-            m = re.match(r'^/internal/orders/by-number/([A-Za-z0-9\-]+)/set-delivery-quote/$', p)
-            if m and method == 'POST':
-                # Стоимость доставки от ОДНОГО завода (когда в заказе товары
-                # нескольких заводов и каждый директор отвечает лично боту).
-                # Когда ответили ВСЕ заводы по этому заказу — их суммы
-                # складываются и применяются как итоговая доставка заказа
-                # (см. create_delivery_quotes_for_order / apply_delivery_fee).
-                order = conn.execute('SELECT * FROM orders WHERE order_number=%s', (m.group(1),)).fetchone()
-                if not order:
-                    raise ApiError(404, 'Заказ не найден')
-                if order['delivery_quoted']:
-                    raise ApiError(400, 'Стоимость доставки по этому заказу уже определена')
-                body = self._read_json_body()
-                factory_id = body.get('factory_id')
-                try:
-                    amount = round(float(body.get('amount')))
-                except (TypeError, ValueError):
-                    raise ApiError(400, 'Некорректная сумма доставки')
-                if amount < 0:
-                    raise ApiError(400, 'Сумма не может быть отрицательной')
-                cur = conn.execute(
-                    'UPDATE order_delivery_quotes SET amount=%s WHERE order_id=%s AND '
-                    'COALESCE(factory_id,0)=COALESCE(%s,0) AND amount IS NULL',
-                    (amount, order['id'], factory_id)
-                )
-                if cur.rowcount == 0:
-                    raise ApiError(400, 'Этот завод уже указал стоимость доставки по этому заказу либо он не участвует в заказе')
-                conn.commit()
-                quotes = delivery_quotes_to_json(conn, order['id'])
-                all_done = all(q['submitted'] for q in quotes)
-                if all_done:
-                    total_fee = round(sum(q['amount'] for q in quotes))
-                    apply_delivery_fee(conn, order, total_fee)
-                    order = conn.execute('SELECT * FROM orders WHERE id=%s', (order['id'],)).fetchone()
-                return {'order': order_to_json(conn, order), 'all_done': all_done, 'quotes': quotes}
-
             m = re.match(r'^/internal/orders/by-number/([A-Za-z0-9\-]+)/confirm/$', p)
             if m and method == 'POST':
                 order = conn.execute('SELECT * FROM orders WHERE order_number=%s', (m.group(1),)).fetchone()
@@ -2542,29 +2338,6 @@ class Handler(BaseHTTPRequestHandler):
 
             if p == '/admin/logout/' and method == 'POST':
                 conn.execute('DELETE FROM admin_sessions WHERE token=%s', (admin['token'],))
-                conn.commit()
-                return {'detail': 'ok'}
-
-            if p == '/admin/wipe-data/' and method == 'POST':
-                # Полная очистка: обнуляет заказы, клиентов, финансовую историю,
-                # уведомления и т.д. — КАТАЛОГ (categories/products/factories)
-                # не трогаем. Требует явного подтверждения телом запроса,
-                # чтобы случайный вызов не снёс базу.
-                body = self._read_json_body()
-                if (body.get('confirm') or '') != 'WIPE':
-                    raise ApiError(400, 'Требуется подтверждение: передайте {"confirm":"WIPE"}')
-                # Порядок важен из-за внешних ключей (сначала дочерние таблицы).
-                for tbl in (
-                    'finance_order_snapshots', 'finance_transactions',
-                    'bot_outbox', 'notifications',
-                    'order_delivery_quotes', 'order_items', 'orders',
-                    'cart_items', 'tokens', 'otp_codes', 'reviews',
-                    'users',
-                ):
-                    conn.execute(f'DELETE FROM {tbl}')
-                # Все сессии администратора, кроме текущей, тоже сбрасываем —
-                # но себя не разлогиниваем.
-                conn.execute('DELETE FROM admin_sessions WHERE token != %s', (admin['token'],))
                 conn.commit()
                 return {'detail': 'ok'}
 
@@ -2773,25 +2546,22 @@ class Handler(BaseHTTPRequestHandler):
                     'created_at': r['created_at'],
                 } for r in rows]
 
-            # Заводы + их директор в Telegram (личка, куда бот шлёт запрос
-            # «впишите стоимость доставки») — отдельная страница настроек,
-            # не привязанная к конкретному товару.
             if p == '/admin/finance/factories/' and method == 'GET':
-                rows = conn.execute('SELECT id, name, telegram_chat_id FROM factories ORDER BY name').fetchall()
-                return [{'id': r['id'], 'name': r['name'], 'telegram_chat_id': r['telegram_chat_id']} for r in rows]
+                rows = conn.execute('SELECT * FROM factories ORDER BY name').fetchall()
+                return [{'id': r['id'], 'name': r['name']} for r in rows]
 
-            m = re.match(r'^/admin/finance/factories/(\d+)/$', p)
-            if m and method == 'POST':
-                factory = conn.execute('SELECT * FROM factories WHERE id=%s', (m.group(1),)).fetchone()
-                if not factory:
-                    raise ApiError(404, 'Завод не найден')
-                body = self._read_json_body()
-                chat_id = (body.get('telegram_chat_id') or '').strip()
-                if chat_id and not re.match(r'^-?\d+$', chat_id):
-                    raise ApiError(400, 'Chat ID — это число (например -1004376636234 или 1307249120), не username')
-                conn.execute('UPDATE factories SET telegram_chat_id=%s WHERE id=%s', (chat_id or None, factory['id']))
-                conn.commit()
-                return {'detail': 'ok'}
+            # Список товаров с закупочной ценой/заводом — нужен, чтобы владелец
+            # мог вписать реальный закуп (без этого маржа всегда была бы 0).
+            if p == '/admin/finance/products/' and method == 'GET':
+                rows = conn.execute(
+                    'SELECT p.id, p.name, p.brand, p.base_price, p.buy_price, p.factory_id, '
+                    'f.name AS factory_name FROM products p LEFT JOIN factories f ON f.id=p.factory_id '
+                    'ORDER BY p.id'
+                ).fetchall()
+                return [{
+                    'id': r['id'], 'name': r['name'], 'brand': r['brand'], 'sell_price': r['base_price'],
+                    'buy_price': r['buy_price'], 'factory_id': r['factory_id'], 'factory_name': r['factory_name'],
+                } for r in rows]
 
             m = re.match(r'^/admin/finance/products/(\d+)/$', p)
             if m and method == 'POST':
@@ -2799,52 +2569,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not product:
                     raise ApiError(404, 'Товар не найден')
                 body = self._read_json_body()
-                sets, params = [], []
-                if body.get('buy_price') is not None:
-                    try:
-                        buy_price = float(body.get('buy_price'))
-                    except (TypeError, ValueError):
-                        raise ApiError(400, 'Некорректная закупочная цена')
-                    if buy_price < 0:
-                        raise ApiError(400, 'Закупочная цена не может быть отрицательной')
-                    sets.append('buy_price=%s'); params.append(buy_price)
-                if body.get('sell_price') is not None:
-                    # Цена продажи (base_price) — та, что клиент видит в каталоге.
-                    # 'price' держим синхронно как производную от неё (см.
-                    # product_to_json / coef_for_mode выше), чтобы старые места
-                    # кода, которые ещё читают 'price' напрямую, не отставали.
-                    try:
-                        sell_price = float(body.get('sell_price'))
-                    except (TypeError, ValueError):
-                        raise ApiError(400, 'Некорректная цена продажи')
-                    if sell_price < 0:
-                        raise ApiError(400, 'Цена продажи не может быть отрицательной')
-                    sets.append('base_price=%s'); params.append(sell_price)
-                    sets.append('price=%s'); params.append(round(sell_price * MARKUP_DELIVERY))
-                factory_name = (body.get('factory_name') or '').strip()
-                factory_id = get_or_create_factory(conn, factory_name) if factory_name else None
-                if factory_id:
-                    sets.append('factory_id=%s'); params.append(factory_id)
-                if not sets:
-                    raise ApiError(400, 'Нечего сохранять')
-                params.append(product['id'])
-                conn.execute(f"UPDATE products SET {', '.join(sets)} WHERE id=%s", params)
-                conn.commit()
-                return {'detail': 'ok'}
-
-            # Массовое проставление одной закупочной цены/завода сразу нескольким
-            # товарам (когда у них одинаковая цена — например, кирпич разных
-            # цветов от одного завода). Один UPDATE на весь выбранный список,
-            # а не по одному запросу на каждый товар.
-            if p == '/admin/finance/products/bulk-set/' and method == 'POST':
-                body = self._read_json_body()
-                product_ids = body.get('product_ids') or []
-                if not isinstance(product_ids, list) or not product_ids:
-                    raise ApiError(400, 'Не выбрано ни одного товара')
-                try:
-                    product_ids = [int(pid) for pid in product_ids]
-                except (TypeError, ValueError):
-                    raise ApiError(400, 'Некорректный список товаров')
                 try:
                     buy_price = float(body.get('buy_price'))
                 except (TypeError, ValueError):
@@ -2854,11 +2578,11 @@ class Handler(BaseHTTPRequestHandler):
                 factory_name = (body.get('factory_name') or '').strip()
                 factory_id = get_or_create_factory(conn, factory_name) if factory_name else None
                 conn.execute(
-                    'UPDATE products SET buy_price=%s, factory_id=COALESCE(%s, factory_id) WHERE id = ANY(%s)',
-                    (buy_price, factory_id, product_ids)
+                    'UPDATE products SET buy_price=%s, factory_id=COALESCE(%s, factory_id) WHERE id=%s',
+                    (buy_price, factory_id, product['id'])
                 )
                 conn.commit()
-                return {'detail': 'ok', 'updated': len(product_ids)}
+                return {'detail': 'ok'}
 
             raise ApiError(404, f'Неизвестный маршрут панели администратора: {method} {path}')
 

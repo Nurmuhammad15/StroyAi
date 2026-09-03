@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>StroyAI — стройматериалы</title>
+<link rel="icon" type="image/png" href="/media/favicon.png">
+<link rel="apple-touch-icon" href="/media/favicon.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
@@ -422,7 +424,7 @@
   .empty-state svg{margin:0 auto 14px;opacity:0.5;}
 
   /* Product detail page */
-  .product-hero{margin:0 18px;width:calc(100% - 36px);aspect-ratio:0.76;border-radius:18px;overflow:hidden;background:#f3f1ec;position:relative;}
+  .product-hero{margin:0 18px;width:calc(100% - 36px);aspect-ratio:0.76;max-height:300px;border-radius:18px;overflow:hidden;background:#f3f1ec;position:relative;}
   .product-hero img{width:100%;height:100%;object-fit:cover;}
   html[data-theme="dark"] .product-hero{background:#26262f;}
   .product-cat{font-size:12.5px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:0.03em;}
@@ -1118,6 +1120,10 @@
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg><span data-i18n="nav_home">Главная</span></button>
     <button class="nav-item" data-tab="catalog" onclick="goTab('catalog')">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="nav_catalog">Каталог</span></button>
+    <button class="nav-item" data-tab="cart" onclick="goTab('cart')" style="position:relative;">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg><span data-i18n="nav_cart">Корзина</span>
+      <div class="badge-dot" id="cartDotNav" style="display:none;position:absolute;top:2px;right:calc(50% - 20px);"></div>
+    </button>
     <button class="nav-item" data-tab="ai-design" onclick="goTab('ai-design')">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg><span data-i18n="nav_ai">ИИ-Дизайн</span><span class="nav-badge-new">NEW</span></button>
     <button class="nav-item" data-tab="builders" onclick="goTab('builders')">
@@ -1195,7 +1201,7 @@ const DELIVERY_ZONE_LABEL = 'Ташкент и область';
 /* ============ I18N (o'zbek asosiy til, rus — global) ============ */
 const I18N = {
   uz: {
-    nav_home:'Bosh sahifa', nav_catalog:'Katalog', nav_ai:'AI-Dizayn', nav_builders:'Quruvchilar', nav_profile:'Profil',
+    nav_home:'Bosh sahifa', nav_catalog:'Katalog', nav_cart:'Savat', nav_ai:'AI-Dizayn', nav_builders:'Quruvchilar', nav_profile:'Profil',
     dark_theme:'Tungi mavzu',
     city_zone_label:'Yetkazib berish hududi', city_soon:'Tez orada', city_changed:'Shahar tanlandi: ',
     city_soon_toast:'Bu hududda hozircha ishlamaymiz — tez orada qo\'shamiz',
@@ -1262,7 +1268,7 @@ const I18N = {
     order_edit_title:'Buyurtma ma\'lumotlarini tahrirlash', save_btn:'Saqlash', cancel_btn:'Bekor qilish',
   },
   ru: {
-    nav_home:'Главная', nav_catalog:'Каталог', nav_ai:'ИИ-Дизайн', nav_builders:'Строители', nav_profile:'Профиль',
+    nav_home:'Главная', nav_catalog:'Каталог', nav_cart:'Корзина', nav_ai:'ИИ-Дизайн', nav_builders:'Строители', nav_profile:'Профиль',
     dark_theme:'Тёмная тема',
     city_zone_label:'Зона доставки', city_soon:'Скоро', city_changed:'Город изменён: ',
     city_soon_toast:'В этом городе пока не работаем — скоро подключим',
@@ -1592,6 +1598,47 @@ function runPendingAction(){
   }
 }
 
+/* ============ ГОСТЕВАЯ КОРЗИНА (localStorage, до входа в аккаунт) ============
+   Смотреть каталог и добавлять товары можно и без регистрации — иначе
+   человек, который просто хочет прицениться, сразу упирается в экран входа.
+   Регистрация нужна только на шаге «Оформить заказ» (см. confirmCartOrder),
+   а до этого корзина живёт в localStorage и переносится на сервер сразу
+   после входа (см. verifyOtp), так что ничего не теряется. */
+function getGuestCart(){
+  try{ return JSON.parse(localStorage.getItem('guestCart') || '[]'); }catch(e){ return []; }
+}
+function setGuestCart(items){
+  localStorage.setItem('guestCart', JSON.stringify(items));
+}
+function buildGuestCartObject(){
+  const raw = getGuestCart();
+  const items = [];
+  let total = 0, count = 0;
+  for(const g of raw){
+    const p = productById(g.product_id);
+    if(!p) continue; // товар мог пропасть из каталога — просто не показываем
+    // Каталог грузится в режиме "доставка" (без наценки); при самовывозе
+    // сервер прибавляет +1% — повторяем это же правило здесь же на клиенте
+    // (см. MARKUP_PICKUP в backend.py), чтобы цена в гостевой корзине не
+    // отличалась от той, что будет уже на сервере после входа.
+    const price = state.cartMode === 'pickup' ? Math.round(p.price * 1.01) : p.price;
+    const line_total = price * g.quantity;
+    total += line_total;
+    count += g.quantity;
+    items.push({id: g.product_id, product: {...p, price}, quantity: g.quantity, line_total});
+  }
+  return {items, total, count};
+}
+async function migrateGuestCartToServer(){
+  const raw = getGuestCart();
+  if(!raw.length) return;
+  for(const gi of raw){
+    try{ await api('/cart/items/', {method:'POST', body:{product_id: gi.product_id, quantity: gi.quantity}}); }
+    catch(e){ /* один неудачный товар не должен блокировать перенос остальных */ }
+  }
+  setGuestCart([]);
+}
+
 /* ============ AUTH ============ */
 function setAuthTab(tab){
   state.authTab = tab;
@@ -1720,6 +1767,11 @@ async function verifyOtp(){
       state.pendingRegEmail = null;
       state.pendingRegPhone = null;
     }
+
+    // Товары, добавленные ДО входа (гостевая корзина в localStorage),
+    // переносим на сервер — иначе после регистрации корзина выглядела бы
+    // пустой, хотя человек только что туда что-то добавлял.
+    await migrateGuestCartToServer();
 
     renderProfile();
     await Promise.all([refreshCart(), refreshNotifications()]);
@@ -1884,10 +1936,10 @@ function showComingSoon(tab){
 function goTab(tab){
   stopCheckoutPolling();
   if(COMING_SOON_TABS[tab]){ showComingSoon(tab); return; }
-  if((tab==='orders' || tab==='cart') && !requireLogin(()=>goTab(tab))) return;
+  if((tab==='orders') && !requireLogin(()=>goTab(tab))) return;
   if(tab!=='notifications'){ state.previousMainTab = state.currentTab; }
   showPage(`.page[data-page="${tab}"]`);
-  const mainTabs = ['home','catalog','ai-design','builders','orders','profile'];
+  const mainTabs = ['home','catalog','cart','ai-design','builders','orders','profile'];
   if(mainTabs.includes(tab)){
     state.currentTab = tab;
     document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -1913,7 +1965,7 @@ function goTab(tab){
 function startOrdersPolling(){
   stopOrdersPolling();
   state.ordersPollInterval = setInterval(()=>{
-    if(document.querySelector('.page[data-page="orders"]').classList.contains('active')) loadOrders();
+    if(document.querySelector('.page[data-page="orders"]').classList.contains('active')) loadOrders(true);
     else stopOrdersPolling();
   }, 8000);
 }
@@ -2037,7 +2089,6 @@ function changeQty(delta){
   document.getElementById('qtyValue').textContent = state.productQty;
 }
 async function addToCartFromDetail(){
-  if(!requireLogin(addToCartFromDetail)) return;
   const p = productById(state.currentProductId);
   await addToCartQty(p.id, state.productQty);
   const btn = document.getElementById('addToCartDetailBtn');
@@ -2048,13 +2099,16 @@ async function addToCartFromDetail(){
 }
 function handleAddToCart(id, e){
   e.stopPropagation();
-  if(!requireLogin(()=>addToCartQty(id, 1, true))) return;
   addToCartQty(id, 1, true);
 }
 
 /* ============ CART (backed by /api/cart/) ============ */
 async function refreshCart(){
-  if(!state.isLoggedIn) return;
+  if(!state.isLoggedIn){
+    state.cart = buildGuestCartObject();
+    updateCartBadges();
+    return;
+  }
   try{
     state.cart = await api(`/cart/?mode=${state.cartMode}`);
     updateCartBadges();
@@ -2079,9 +2133,7 @@ function setCartMode(mode){
   state.cartModeSwitchTimer = setTimeout(()=>{ renderCart(true); }, 2000);
 }
 async function addToCartQty(productId, qty, isGridButton){
-  try{
-    state.cart = await api('/cart/items/', {method:'POST', body:{product_id: productId, quantity: qty}});
-    updateCartBadges();
+  const onSuccess = () => {
     if(isGridButton){
       const btn = document.getElementById('cart-'+productId);
       if(btn){
@@ -2092,12 +2144,39 @@ async function addToCartQty(productId, qty, isGridButton){
       const p = productById(productId);
       showToast((p ? pname(p) : 'Товар') + ' добавлен в корзину');
     }
+  };
+  if(!state.isLoggedIn){
+    // Без аккаунта корзина живёт в localStorage — регистрация нужна только
+    // на шаге оформления заказа, не раньше (см. confirmCartOrder).
+    const raw = getGuestCart();
+    const existing = raw.find(i=>i.product_id===productId);
+    if(existing) existing.quantity += qty;
+    else raw.push({product_id: productId, quantity: qty});
+    setGuestCart(raw);
+    state.cart = buildGuestCartObject();
+    updateCartBadges();
+    onSuccess();
+    return;
+  }
+  try{
+    state.cart = await api('/cart/items/', {method:'POST', body:{product_id: productId, quantity: qty}});
+    updateCartBadges();
+    onSuccess();
   }catch(err){ showError(err); }
 }
 async function changeCartQty(itemId, delta){
   const item = state.cart.items.find(i=>i.id===itemId);
   if(!item) return;
   const next = item.quantity + delta;
+  if(!state.isLoggedIn){
+    let raw = getGuestCart();
+    if(next <= 0){ raw = raw.filter(i=>i.product_id !== itemId); }
+    else { const g = raw.find(i=>i.product_id===itemId); if(g) g.quantity = next; }
+    setGuestCart(raw);
+    updateCartBadges();
+    renderCart();
+    return;
+  }
   try{
     if(next <= 0){
       state.cart = await api(`/cart/items/${itemId}/`, {method:'DELETE'});
@@ -2114,6 +2193,15 @@ async function setCartQty(itemId, rawValue){
   const digits = String(rawValue).replace(/[^0-9]/g,'');
   const next = digits === '' ? 0 : parseInt(digits, 10);
   if(next === item.quantity){ renderCart(); return; }
+  if(!state.isLoggedIn){
+    let raw = getGuestCart();
+    if(next <= 0){ raw = raw.filter(i=>i.product_id !== itemId); }
+    else { const g = raw.find(i=>i.product_id===itemId); if(g) g.quantity = next; }
+    setGuestCart(raw);
+    updateCartBadges();
+    renderCart();
+    return;
+  }
   try{
     if(next <= 0){
       state.cart = await api(`/cart/items/${itemId}/`, {method:'DELETE'});
@@ -2125,6 +2213,13 @@ async function setCartQty(itemId, rawValue){
   }catch(err){ showError(err); renderCart(); }
 }
 async function removeFromCart(itemId){
+  if(!state.isLoggedIn){
+    const raw = getGuestCart().filter(i=>i.product_id !== itemId);
+    setGuestCart(raw);
+    updateCartBadges();
+    renderCart();
+    return;
+  }
   try{
     state.cart = await api(`/cart/items/${itemId}/`, {method:'DELETE'});
     updateCartBadges();
@@ -2133,7 +2228,7 @@ async function removeFromCart(itemId){
 }
 function updateCartBadges(){
   const count = state.cart.count || 0;
-  ['cartDotCatalog','cartDotProduct'].forEach(elId=>{
+  ['cartDotCatalog','cartDotProduct','cartDotNav'].forEach(elId=>{
     const el = document.getElementById(elId);
     if(el) el.style.display = count > 0 ? 'block' : 'none';
   });
@@ -2268,7 +2363,13 @@ function setCheckoutTimeMode(mode){
   state.checkoutTimeMode = mode;
   document.querySelectorAll('.time-toggle-btn').forEach(b=>b.classList.toggle('active', b.dataset.timeMode===mode));
   const timeInputWrap = document.getElementById('coTimeValueWrap');
-  if(timeInputWrap) timeInputWrap.style.display = mode==='specific' ? 'block' : 'none';
+  if(timeInputWrap) timeInputWrap.style.display = mode==='specific' ? 'flex' : 'none';
+  const dateInput = document.getElementById('coDateValue');
+  if(dateInput && !dateInput.value){
+    const today = new Date();
+    dateInput.min = today.toISOString().slice(0,10);
+    dateInput.value = today.toISOString().slice(0,10);
+  }
 }
 function renderCheckout(){
   const el = document.getElementById('checkoutContent');
@@ -2330,7 +2431,10 @@ function renderCheckout(){
           <button type="button" class="time-toggle-btn active" data-time-mode="asap" onclick="setCheckoutTimeMode('asap')">${t('co_asap')}</button>
           <button type="button" class="time-toggle-btn" data-time-mode="specific" onclick="setCheckoutTimeMode('specific')">${t('co_specific')}</button>
         </div>
-        <div id="coTimeValueWrap" style="display:none;margin-top:8px;"><input id="coTimeValue" type="time"></div>
+        <div id="coTimeValueWrap" style="display:none;margin-top:8px;gap:8px;" class="time-toggle">
+          <input id="coDateValue" type="date" style="flex:1;min-width:0;">
+          <input id="coTimeValue" type="time" style="flex:1;min-width:0;">
+        </div>
       </div>
       <div class="total-row" style="padding:12px 0 4px;font-weight:800;font-size:15.5px;"><span>${t('co_total_onsite')}</span><span>${fmt(o.total)}</span></div>
       <button class="primary-btn" onclick="submitCheckoutBlank()">${t('co_submit')}</button>
@@ -2348,8 +2452,11 @@ async function submitCheckoutBlank(){
   let desiredTime = 'Как можно скорее';
   if(state.checkoutTimeMode === 'specific'){
     const t = document.getElementById('coTimeValue').value;
+    const d = document.getElementById('coDateValue').value;
+    if(!d){ showToast('Укажите дату'); return; }
     if(!t){ showToast('Укажите желаемое время'); return; }
-    desiredTime = `К ${t}`;
+    const [y, m, day] = d.split('-');
+    desiredTime = `${day}.${m}.${y} к ${t}`;
   }
 
   if(!name){ showToast('Укажите имя заказчика'); return; }
@@ -2368,15 +2475,29 @@ async function submitCheckoutBlank(){
 }
 
 /* ============ ORDERS ============ */
-async function loadOrders(){
+async function loadOrders(silent){
   const list = document.getElementById('ordersList');
-  list.classList.add('is-loading');
-  list.innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
+  // silent=true — это фоновый опрос (см. startOrdersPolling), а не первое
+  // открытие вкладки. Раньше он БЕЗУСЛОВНО стирал список в спиннер и
+  // перерисовывал всё заново каждые 8 секунд — даже если ничего не
+  // изменилось. Именно это ощущалось как "сайт сам постоянно
+  // перезагружается". Теперь в фоне список не трогаем вообще, пока данные
+  // реально не поменяются.
+  if(!silent){
+    list.classList.add('is-loading');
+    list.innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
+  }
   try{
     const data = await api('/orders/');
-    state.orders = data.results || data;
-    renderOrders();
-  }catch(err){ list.innerHTML = `<div class="empty-state">${t('not_found_orders')}</div>`; }
+    const fresh = data.results || data;
+    const changed = JSON.stringify(fresh) !== JSON.stringify(state.orders);
+    state.orders = fresh;
+    if(!silent || changed) renderOrders();
+  }catch(err){
+    if(!silent) list.innerHTML = `<div class="empty-state">${t('not_found_orders')}</div>`;
+    // в тихом фоновом опросе разовый сбой сети не показываем — список
+    // просто останется как был, следующий тик попробует снова
+  }
   finally{ list.classList.remove('is-loading'); }
 }
 function renderOrders(){
@@ -2801,6 +2922,12 @@ async function loadUsdRate(){
   await loadCategories();
   await loadCatalog();
   await restoreSession();
+  // Гостю (ещё не вошёл) корзину из localStorage тоже нужно посчитать сразу
+  // при открытии сайта — иначе точка-бейдж на «Корзине» появится только
+  // после первого добавления товара в этой сессии, а не сразу, если он
+  // добавлял что-то в прошлый раз. Для вошедших refreshCart() уже
+  // отработал внутри restoreSession() — второй раз не дёргаем.
+  if(!state.isLoggedIn) await refreshCart();
   detectCity();
 })();
 

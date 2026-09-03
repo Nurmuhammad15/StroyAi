@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StroyAI — панель администратора</title>
+<link rel="icon" type="image/png" href="/media/favicon.png">
+<link rel="apple-touch-icon" href="/media/favicon.png">
 <style>
   :root{
     --bg:#111116; --panel:#1a1a22; --card:#20202a; --card-2:#252530;
@@ -98,6 +100,34 @@
 
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--card-2);border:1px solid var(--border);padding:10px 18px;border-radius:10px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:1000;opacity:0;pointer-events:none;transition:opacity 0.2s;}
   .toast.show{opacity:1;}
+
+  /* ---- Финансы ---- */
+  select{padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;}
+  input[type="date"]{padding:7px 10px;border-radius:20px;border:1.5px solid var(--border);background:var(--card);color:var(--text-2);font-size:12.5px;}
+  .fin-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px;}
+  .fin-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
+  .fin-card-highlight{border-color:#ff9a52;background:linear-gradient(135deg, rgba(255,154,82,0.14), var(--panel));}
+  .fin-card-highlight b{color:#ff9a52;}
+  .fin-card span{display:block;font-size:11.5px;color:var(--text-3);margin-bottom:4px;}
+  .fin-card b{font-size:17px;}
+  .fin-card .usd{display:block;font-size:11.5px;color:var(--text-2);margin-top:2px;font-weight:400;}
+  .fin-rate{font-size:12px;color:var(--text-2);margin-bottom:16px;line-height:1.6;}
+  .fin-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .fin-table th{text-align:left;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.02em;padding:6px 8px;border-bottom:1px solid var(--border);}
+  .fin-table td{padding:8px;border-bottom:1px dashed var(--border);}
+  .fin-table tr:last-child td{border-bottom:none;}
+  .tx-income{color:var(--green);font-weight:700;white-space:nowrap;}
+  .tx-expense{color:var(--red);font-weight:700;white-space:nowrap;}
+  .factory-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;overflow:hidden;}
+  .factory-head{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;gap:10px;flex-wrap:wrap;}
+  .factory-head b{font-size:14px;}
+  .factory-stats{display:flex;gap:14px;text-align:right;flex-wrap:wrap;}
+  .factory-stats div span{display:block;font-size:11px;color:var(--text-3);}
+  .factory-stats div b{font-size:13px;}
+  .factory-body{border-top:1px solid var(--border);padding:12px 14px;display:none;overflow-x:auto;}
+  .factory-body.open{display:block;}
+  .product-row{display:flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid var(--border);flex-wrap:wrap;background:var(--panel);border-radius:var(--radius-sm);margin-bottom:8px;}
+  .product-row input{padding:7px 9px;border-radius:7px;border:1.5px solid var(--border);background:var(--card);color:var(--text);font-size:12.5px;}
 </style>
 </head>
 <body>
@@ -127,6 +157,8 @@
   <div class="tabs-row">
     <div class="tab-btn active" data-tab="orders" onclick="setMainTab('orders')">Заказы</div>
     <div class="tab-btn" data-tab="clients" onclick="setMainTab('clients')">Клиенты</div>
+    <div class="tab-btn" data-tab="finance" onclick="setMainTab('finance')">Финансы</div>
+    <div class="tab-btn" data-tab="settings" onclick="setMainTab('settings')">Настройки</div>
   </div>
 
   <div id="ordersTab">
@@ -147,6 +179,92 @@
       <input id="clientSearchInput" placeholder="Поиск по имени, email или телефону…" oninput="renderClients()">
     </div>
     <div id="clientsList"></div>
+  </div>
+
+  <div id="financeTab" class="hidden">
+    <div class="tabs-row" style="margin-bottom:14px;">
+      <div class="tab-btn fin-sub active" data-finsub="overview" onclick="setFinanceSubTab('overview')">Обзор</div>
+      <div class="tab-btn fin-sub" data-finsub="byFactory" onclick="setFinanceSubTab('byFactory')">По заводам</div>
+      <div class="tab-btn fin-sub" data-finsub="products" onclick="setFinanceSubTab('products')">Закупочные цены</div>
+    </div>
+
+    <div class="filters" id="financePeriodFilters">
+      <div class="filter-chip" data-finperiod="today" onclick="setFinancePeriod('today')">Сегодня</div>
+      <div class="filter-chip" data-finperiod="7d" onclick="setFinancePeriod('7d')">7 дней</div>
+      <div class="filter-chip active" data-finperiod="30d" onclick="setFinancePeriod('30d')">30 дней</div>
+      <input type="date" id="financeFromInput" onchange="setFinancePeriod('custom')">
+      <span style="color:var(--text-3);align-self:center;">—</span>
+      <input type="date" id="financeToInput" onchange="setFinancePeriod('custom')">
+    </div>
+
+    <div id="financeOverviewView">
+      <div class="fin-cards" id="financeCards"></div>
+      <div class="fin-rate" id="financeRateLine">Загрузка…</div>
+      <div class="action-box">
+        <div class="section-title">Добавить расход</div>
+        <div class="row">
+          <input type="number" id="expenseAmountInput" placeholder="Сумма, сум" min="0">
+          <select id="expenseCategorySelect">
+            <option value="factory">Закуп у завода</option>
+            <option value="delivery">Доставка</option>
+            <option value="fuel">Бензин</option>
+            <option value="breakage">Бой/брак</option>
+            <option value="ads">Реклама</option>
+            <option value="other" selected>Прочее</option>
+          </select>
+          <input type="text" id="expenseNoteInput" placeholder="Комментарий" style="flex:1;min-width:160px;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--panel);color:var(--text);font-size:13px;">
+          <button class="btn primary" onclick="submitExpense()">Добавить</button>
+        </div>
+      </div>
+      <div class="section-title" style="margin-top:18px;">Транзакции</div>
+      <div id="financeTransactionsList"></div>
+    </div>
+
+    <div id="financeByFactoryView" class="hidden">
+      <div id="financeByFactoryList"></div>
+    </div>
+
+    <div id="financeProductsView" class="hidden">
+      <div class="sub" style="margin-bottom:12px;">Закупочная цена нужна для расчёта реальной маржи. Пока не заполнена — закуп временно приравнен к продажной цене (маржа 0).</div>
+      <div class="action-box" id="bulkPriceBar" style="margin-bottom:12px;">
+        <div class="section-title">Проставить цену сразу нескольким товарам</div>
+        <div class="sub" style="margin-bottom:8px;">Отметьте товары галочками ниже — если у них одинаковая закупочная цена (например, кирпич разных цветов от одного завода), впишите её один раз здесь.</div>
+        <div class="row">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-2);">
+            <input type="checkbox" id="bulkSelectAll" onchange="toggleSelectAllProducts(this.checked)"> Выбрать все
+          </label>
+          <span id="bulkSelectedCount" class="sub">Выбрано: 0</span>
+          <input type="text" id="bulkFactoryInput" placeholder="Завод" style="width:150px;">
+          <input type="number" id="bulkBuyInput" placeholder="Закупочная цена для всех" min="0" style="width:180px;">
+          <button class="btn primary" onclick="applyBulkPrice()">Применить к выбранным</button>
+        </div>
+      </div>
+      <div id="financeProductsList"></div>
+    </div>
+  </div>
+
+  <div id="settingsTab" class="hidden">
+    <div class="action-box">
+      <div class="section-title">Директора заводов в Telegram</div>
+      <div class="sub" style="margin-bottom:12px;">
+        Если в заказе товары нескольких заводов — каждому директору бот пишет в личку с просьбой указать
+        стоимость доставки своей части; итоговая доставка — сумма их ответов. Chat ID — это число
+        (например <code>1307249120</code> или <code>-1004376636234</code> для канала), не username. Чтобы бот
+        мог написать директору первым, тот должен хотя бы один раз сам нажать Start в чате с ботом.
+      </div>
+      <div id="factoriesList"></div>
+    </div>
+
+    <div class="action-box" style="border-color:#c0392b;margin-top:16px;">
+      <div class="section-title" style="color:#e74c3c;">⚠ Полная очистка данных</div>
+      <div class="sub" style="margin-bottom:12px;">
+        Удаляет ВСЕ заказы, клиентов, историю финансов, уведомления и отзывы.
+        Каталог (категории, товары, заводы, закупочные/продажные цены) не трогается —
+        сайт продолжит работать с тем же ассортиментом, но с чистой историей.
+        Это действие необратимо.
+      </div>
+      <button class="btn" style="background:#c0392b;color:#fff;" onclick="wipeAllData()">Очистить все данные, кроме каталога</button>
+    </div>
   </div>
 </div>
 
@@ -220,6 +338,49 @@ function doLogout(){
   showLogin();
 }
 
+async function wipeAllData(){
+  if(!confirm('Удалить ВСЕ заказы, клиентов и финансовую историю? Каталог останется. Действие необратимо.')) return;
+  const typed = prompt('Для подтверждения введите слово WIPE (заглавными буквами):');
+  if(typed !== 'WIPE'){ showToast('Отменено'); return; }
+  try{
+    await api('/wipe-data/', {method:'POST', body:{confirm:'WIPE'}});
+    showToast('Все данные, кроме каталога, очищены');
+    orders = [];
+    clients = [];
+    clientsLoaded = false;
+    refreshCurrentTab();
+  }catch(err){ showToast(err.message); }
+}
+
+let factories = [];
+let factoriesLoaded = false;
+async function loadFactories(){
+  try{
+    factories = await api('/finance/factories/');
+    factoriesLoaded = true;
+    renderFactories();
+  }catch(err){ showToast(err.message); }
+}
+function renderFactories(){
+  const el = document.getElementById('factoriesList');
+  if(!factories.length){ el.innerHTML = `<div class="empty">Заводов пока нет — они появляются автоматически, когда в товаре в разделе «Финансы» указан завод.</div>`; return; }
+  el.innerHTML = factories.map(f => `
+    <div class="product-row">
+      <div style="flex:1;min-width:160px;"><b>${f.name}</b></div>
+      <input type="text" id="factoryChatId-${f.id}" placeholder="Chat ID директора" value="${f.telegram_chat_id || ''}" style="width:220px;">
+      <button class="btn primary" onclick="saveFactoryChatId(${f.id})">Сохранить</button>
+    </div>
+  `).join('');
+}
+async function saveFactoryChatId(id){
+  const chatId = document.getElementById(`factoryChatId-${id}`).value.trim();
+  try{
+    await api(`/finance/factories/${id}/`, {method:'POST', body:{telegram_chat_id: chatId}});
+    showToast('Сохранено');
+    loadFactories();
+  }catch(err){ showToast(err.message); }
+}
+
 function setFilter(f){
   currentFilter = f;
   document.querySelectorAll('.filter-chip').forEach(c=>c.classList.toggle('active', c.dataset.filter===f));
@@ -228,20 +389,29 @@ function setFilter(f){
 
 function setMainTab(tabName){
   currentMainTab = tabName;
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tabName));
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(b=>b.classList.toggle('active', b.dataset.tab===tabName));
   document.getElementById('ordersTab').classList.toggle('hidden', tabName!=='orders');
   document.getElementById('clientsTab').classList.toggle('hidden', tabName!=='clients');
-  document.getElementById('pageTitle').textContent = tabName==='orders' ? 'Все заказы' : 'Клиенты';
+  document.getElementById('financeTab').classList.toggle('hidden', tabName!=='finance');
+  document.getElementById('settingsTab').classList.toggle('hidden', tabName!=='settings');
+  document.getElementById('pageTitle').textContent = tabName==='orders' ? 'Все заказы' : (tabName==='clients' ? 'Клиенты' : (tabName==='finance' ? 'Финансы' : 'Настройки'));
+  if(tabName==='settings' && !factoriesLoaded){ loadFactories(); }
   if(tabName==='orders'){
     document.getElementById('ordersCountLabel').textContent = `Всего заказов: ${orders.length}`;
     renderOrders();
-  } else {
+  } else if(tabName==='clients'){
     loadClients();
+  } else if(tabName==='finance'){
+    document.getElementById('ordersCountLabel').textContent = 'Доходы, расходы и маржа — видно только владельцу';
+    loadFinanceCurrentView();
   }
 }
 
 function refreshCurrentTab(){
-  if(currentMainTab==='orders') loadOrders(); else loadClients();
+  if(currentMainTab==='orders') loadOrders();
+  else if(currentMainTab==='clients') loadClients();
+  else if(currentMainTab==='finance') loadFinanceCurrentView();
+  else if(currentMainTab==='settings') loadFactories();
 }
 
 async function loadClients(){
@@ -283,12 +453,22 @@ function renderClients(){
   }).join('');
 }
 
-async function loadOrders(){
+async function loadOrders(silent){
   try{
-    orders = await api('/orders/');
+    const fresh = await api('/orders/');
+    const changed = JSON.stringify(fresh) !== JSON.stringify(orders);
+    orders = fresh;
     if(currentMainTab === 'orders') document.getElementById('ordersCountLabel').textContent = `Всего заказов: ${orders.length}`;
-    renderOrders();
-  }catch(err){ showToast(err.message); }
+    // silent=true — это фоновый опрос каждые 8 секунд (см. setInterval внизу
+    // файла), а не открытие вкладки вручную. Раньше он БЕЗУСЛОВНО перерисовывал
+    // весь список — и если админ в этот момент печатал сумму доставки в
+    // поле "Сумма, сум", поле стиралось прямо во время ввода. Теперь в фоне
+    // список не трогаем, если ничего не изменилось, а если и изменилось —
+    // не перерисовываем, пока в поле суммы доставки активно печатают.
+    const activeEl = document.activeElement;
+    const isTypingFee = activeEl && activeEl.tagName === 'INPUT' && activeEl.id && activeEl.id.startsWith('feeInput-');
+    if(!silent || (changed && !isTypingFee)) renderOrders();
+  }catch(err){ if(!silent) showToast(err.message); }
 }
 
 function matchesFilter(o){
@@ -515,10 +695,303 @@ function openLightbox(src){
   document.body.appendChild(box);
 }
 
+// ---------------------------------------------------------------------
+// Финансы (/admin/finance) — видно только владельцу. Никаких клиентских
+// данных здесь нет, только суммы/маржа/расходы.
+// ---------------------------------------------------------------------
+let financeSubTab = 'overview';
+let financePeriod = {preset:'30d', from:null, to:null};
+let financeSummary = null;
+let financeTransactions = [];
+let financeByFactoryData = null;
+let financeProducts = [];
+let openFactoryIds = new Set();
+
+const EXPENSE_CATEGORY_LABELS = {
+  factory:'Закуп у завода', delivery:'Доставка', fuel:'Бензин',
+  breakage:'Бой/брак', ads:'Реклама', other:'Прочее'
+};
+
+function fmtUsd(m){
+  if(!m || m.amount_usd === null || m.amount_usd === undefined) return '';
+  return `≈ $${m.amount_usd.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+}
+
+function financeRangeDates(){
+  const today = new Date();
+  const iso = d => d.toISOString().slice(0,10);
+  if(financePeriod.preset === 'custom' && financePeriod.from && financePeriod.to){
+    return {from: financePeriod.from, to: financePeriod.to};
+  }
+  let days = 30;
+  if(financePeriod.preset === 'today') days = 1;
+  else if(financePeriod.preset === '7d') days = 7;
+  const from = new Date(today);
+  from.setDate(from.getDate() - (days - 1));
+  return {from: iso(from), to: iso(today)};
+}
+
+function setFinancePeriod(preset){
+  if(preset === 'custom'){
+    const from = document.getElementById('financeFromInput').value;
+    const to = document.getElementById('financeToInput').value;
+    if(!from || !to) return;
+    financePeriod = {preset:'custom', from, to};
+    document.querySelectorAll('[data-finperiod]').forEach(c=>c.classList.remove('active'));
+  } else {
+    financePeriod = {preset, from:null, to:null};
+    document.getElementById('financeFromInput').value = '';
+    document.getElementById('financeToInput').value = '';
+    document.querySelectorAll('[data-finperiod]').forEach(c=>c.classList.toggle('active', c.dataset.finperiod===preset));
+  }
+  loadFinanceCurrentView();
+}
+
+function setFinanceSubTab(name){
+  financeSubTab = name;
+  document.querySelectorAll('.fin-sub').forEach(b=>b.classList.toggle('active', b.dataset.finsub===name));
+  document.getElementById('financeOverviewView').classList.toggle('hidden', name!=='overview');
+  document.getElementById('financeByFactoryView').classList.toggle('hidden', name!=='byFactory');
+  document.getElementById('financeProductsView').classList.toggle('hidden', name!=='products');
+  document.getElementById('financePeriodFilters').classList.toggle('hidden', name==='products');
+  loadFinanceCurrentView();
+}
+
+function loadFinanceCurrentView(){
+  if(financeSubTab === 'overview'){ loadFinanceSummary(); loadFinanceTransactions(); }
+  else if(financeSubTab === 'byFactory'){ loadFinanceByFactory(); }
+  else if(financeSubTab === 'products'){ loadFinanceProducts(); }
+}
+
+async function loadFinanceSummary(){
+  try{
+    const {from, to} = financeRangeDates();
+    financeSummary = await api(`/finance/summary/?from=${from}&to=${to}`);
+    renderFinanceCards();
+  }catch(err){ showToast(err.message); }
+}
+
+function renderFinanceCards(){
+  const s = financeSummary;
+  if(!s) return;
+  const card = (label, m, highlight) => `<div class="fin-card${highlight ? ' fin-card-highlight' : ''}"><span>${label}</span><b>${fmt(m.amount_uzs)}</b><span class="usd">${fmtUsd(m)}</span></div>`;
+  document.getElementById('financeCards').innerHTML =
+    // «Моя доля» — именно то, что нужно владельцу: цена продажи минус закупочная
+    // цена по каждой позиции (goods_margin с бэкенда). Отдельная карточка и
+    // визуальный акцент, чтобы не путать с «Прибылью» ниже (это разные вещи —
+    // см. пояснение под карточками).
+    card('Моя доля (цена − закупка)', s.goods_margin, true) +
+    card('Прибыль за период', s.net) +
+    card('Пришло за период', s.total_income) +
+    card('Ушло за период', s.total_expense) +
+    card('Должно быть (баланс)', s.expected_balance);
+  const updated = s.total_income.rate_updated_at
+    ? new Date(s.total_income.rate_updated_at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})
+    : '—';
+  document.getElementById('financeRateLine').innerHTML =
+    `<b>«Моя доля»</b> — цена продажи минус закупочная цена товара (без учёта доставки и расходов). ` +
+    `<b>«Прибыль»</b> — весь денежный поток: пришло минус ушло (включает доставку и ручные расходы). Это разные цифры.<br>` +
+    `Если закупочные цены ещё не заполнены на вкладке «Закупочные цены» — доля будет заниженной/нулевой.<br><br>` +
+    `Курс: 1$ = ${Math.round(s.total_income.currency_rate_usd).toLocaleString('ru-RU')} сум · обновлён ${updated}<br>` +
+    `Оборот от клиентов: ${fmt(s.gross_turnover_clients.amount_uzs)} · Закуп товара: ${fmt(s.goods_buy_sum.amount_uzs)} · ` +
+    `Доставка (с клиента / по факту): ${fmt(s.delivery_client_sum.amount_uzs)} / ${fmt(s.delivery_real_cost_sum.amount_uzs)}<br>` +
+    `Оплаченных заказов: ${s.orders_paid_count} · Средний чек: ${fmt(s.average_check.amount_uzs)}`;
+}
+
+async function loadFinanceTransactions(){
+  try{
+    const {from, to} = financeRangeDates();
+    financeTransactions = await api(`/finance/transactions/?from=${from}&to=${to}`);
+    renderFinanceTransactions();
+  }catch(err){ showToast(err.message); }
+}
+
+function renderFinanceTransactions(){
+  const el = document.getElementById('financeTransactionsList');
+  if(!financeTransactions.length){
+    el.innerHTML = `<div class="empty">Транзакций за этот период нет</div>`;
+    return;
+  }
+  const rows = financeTransactions.map(t=>{
+    const date = new Date(t.created_at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+    const negative = t.amount.amount_uzs < 0;
+    const cls = (t.type==='income' && !negative) ? 'tx-income' : 'tx-expense';
+    const sign = t.type==='income' ? (negative ? '−' : '+') : '−';
+    const label = t.order_number ? `Заказ №${t.order_number}` : (EXPENSE_CATEGORY_LABELS[t.category] || t.category || '—');
+    return `<tr>
+      <td>${date}</td>
+      <td>${label}</td>
+      <td>${t.note || ''}</td>
+      <td class="${cls}">${sign}${fmt(Math.abs(t.amount.amount_uzs))}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<div style="overflow-x:auto;"><table class="fin-table"><thead><tr><th>Дата</th><th>Заказ/категория</th><th>Комментарий</th><th>Сумма</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function submitExpense(){
+  const raw = (document.getElementById('expenseAmountInput').value || '').replace(/[^0-9]/g,'');
+  const amount = parseInt(raw, 10);
+  const category = document.getElementById('expenseCategorySelect').value;
+  const note = document.getElementById('expenseNoteInput').value.trim();
+  if(!amount){ showToast('Укажите сумму расхода'); return; }
+  try{
+    await api('/finance/expense/', {method:'POST', body:{amount_uzs: amount, category, note}});
+    document.getElementById('expenseAmountInput').value = '';
+    document.getElementById('expenseNoteInput').value = '';
+    showToast('Расход добавлен');
+    loadFinanceSummary();
+    loadFinanceTransactions();
+  }catch(err){ showToast(err.message); }
+}
+
+async function loadFinanceByFactory(){
+  try{
+    const {from, to} = financeRangeDates();
+    financeByFactoryData = await api(`/finance/by-factory/?from=${from}&to=${to}`);
+    renderFinanceByFactory();
+  }catch(err){ showToast(err.message); }
+}
+
+function renderFinanceByFactory(){
+  const el = document.getElementById('financeByFactoryList');
+  const data = financeByFactoryData;
+  if(!data || !data.factories.length){
+    el.innerHTML = `<div class="empty">Продаж за этот период нет</div>`;
+    return;
+  }
+  const topLine = `<div class="sub" style="margin-bottom:12px;">
+    Топ по марже: <b>${data.top_by_margin || '—'}</b> · Топ по обороту: <b>${data.top_by_turnover || '—'}</b> · Топ по заказам: <b>${data.top_by_orders || '—'}</b>
+  </div>`;
+  el.innerHTML = topLine + data.factories.map(f=>{
+    const key = f.factory_id ?? 'none';
+    const isOpen = openFactoryIds.has(key);
+    return `<div class="factory-card">
+      <div class="factory-head" onclick="toggleFactoryDrill('${key}')">
+        <div>
+          <b>${f.factory_name}</b>
+          <div class="sub">${f.orders_count} заказ(ов) · ${f.units_sold} ед.</div>
+        </div>
+        <div class="factory-stats">
+          <div><span>Закуп</span><b>${fmt(f.buy_sum.amount_uzs)}</b></div>
+          <div><span>Продажа</span><b>${fmt(f.sell_sum.amount_uzs)}</b></div>
+          <div><span>Маржа</span><b>${fmt(f.margin_sum.amount_uzs)} (${f.margin_share_percent}%)</b></div>
+        </div>
+      </div>
+      <div class="factory-body ${isOpen ? 'open' : ''}" id="factory-body-${key}"></div>
+    </div>`;
+  }).join('');
+  openFactoryIds.forEach(fid => loadFactoryItems(fid));
+}
+
+async function toggleFactoryDrill(factoryKey){
+  const el = document.getElementById(`factory-body-${factoryKey}`);
+  if(!el) return;
+  if(openFactoryIds.has(factoryKey)){
+    openFactoryIds.delete(factoryKey);
+    el.classList.remove('open');
+  } else {
+    openFactoryIds.add(factoryKey);
+    el.classList.add('open');
+    await loadFactoryItems(factoryKey);
+  }
+}
+
+async function loadFactoryItems(factoryKey){
+  const el = document.getElementById(`factory-body-${factoryKey}`);
+  if(!el) return;
+  el.innerHTML = `<div class="sub">Загрузка…</div>`;
+  try{
+    const {from, to} = financeRangeDates();
+    const items = await api(`/finance/by-factory-items/?factory_id=${factoryKey}&from=${from}&to=${to}`);
+    if(!items.length){ el.innerHTML = `<div class="sub">Нет позиций за этот период</div>`; return; }
+    const rows = items.map(it => `<tr>
+      <td>№${it.order_number}</td>
+      <td>${it.product_name}</td>
+      <td>${it.qty}</td>
+      <td>${fmt(it.line_buy_total.amount_uzs)}</td>
+      <td>${fmt(it.line_sell_total.amount_uzs)}</td>
+      <td class="tx-income">${fmt(it.line_margin.amount_uzs)}</td>
+    </tr>`).join('');
+    el.innerHTML = `<table class="fin-table"><thead><tr><th>Заказ</th><th>Товар</th><th>Кол-во</th><th>Закуп</th><th>Продажа</th><th>Маржа</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }catch(err){ el.innerHTML = `<div class="sub">Ошибка загрузки</div>`; }
+}
+
+let selectedProductIds = new Set();
+
+async function loadFinanceProducts(){
+  try{
+    financeProducts = await api('/finance/products/');
+    renderFinanceProducts();
+  }catch(err){ showToast(err.message); }
+}
+
+function renderFinanceProducts(){
+  const el = document.getElementById('financeProductsList');
+  if(!financeProducts.length){ el.innerHTML = `<div class="empty">Товаров нет</div>`; return; }
+  el.innerHTML = financeProducts.map(p => `
+    <div class="product-row">
+      <input type="checkbox" class="product-select" data-pid="${p.id}" ${selectedProductIds.has(p.id) ? 'checked' : ''} onchange="toggleProductSelected(${p.id}, this.checked)">
+      <div style="flex:1;min-width:180px;"><b>${p.name}</b></div>
+      <input type="text" id="factoryInput-${p.id}" placeholder="Завод" value="${p.factory_name || ''}" style="width:150px;">
+      <input type="number" id="sellInput-${p.id}" placeholder="Цена продажи" value="${p.sell_price ?? ''}" min="0" style="width:150px;">
+      <input type="number" id="buyInput-${p.id}" placeholder="Закупочная цена" value="${p.buy_price ?? ''}" min="0" style="width:150px;">
+      <button class="btn primary" onclick="saveProductFinance(${p.id})">Сохранить</button>
+    </div>
+  `).join('');
+  updateBulkSelectedCount();
+}
+
+function toggleProductSelected(id, checked){
+  if(checked) selectedProductIds.add(id); else selectedProductIds.delete(id);
+  updateBulkSelectedCount();
+}
+
+function toggleSelectAllProducts(checked){
+  selectedProductIds = checked ? new Set(financeProducts.map(p => p.id)) : new Set();
+  document.querySelectorAll('.product-select').forEach(cb => { cb.checked = checked; });
+  updateBulkSelectedCount();
+}
+
+function updateBulkSelectedCount(){
+  document.getElementById('bulkSelectedCount').textContent = `Выбрано: ${selectedProductIds.size}`;
+}
+
+async function applyBulkPrice(){
+  if(!selectedProductIds.size){ showToast('Сначала отметьте хотя бы один товар галочкой'); return; }
+  const buyPrice = parseFloat(document.getElementById('bulkBuyInput').value);
+  const factoryName = document.getElementById('bulkFactoryInput').value.trim();
+  if(isNaN(buyPrice) || buyPrice < 0){ showToast('Укажите корректную закупочную цену'); return; }
+  try{
+    // Один запрос на весь выбранный список — не по одному на каждый товар.
+    const result = await api('/finance/products/bulk-set/', {
+      method: 'POST',
+      body: {product_ids: Array.from(selectedProductIds), buy_price: buyPrice, factory_name: factoryName}
+    });
+    showToast(`Обновлено товаров: ${result.updated}`);
+    selectedProductIds = new Set();
+    document.getElementById('bulkSelectAll').checked = false;
+    document.getElementById('bulkBuyInput').value = '';
+    loadFinanceProducts();
+  }catch(err){ showToast(err.message); }
+}
+
+async function saveProductFinance(id){
+  const buyPrice = parseFloat(document.getElementById(`buyInput-${id}`).value);
+  const sellPrice = parseFloat(document.getElementById(`sellInput-${id}`).value);
+  const factoryName = document.getElementById(`factoryInput-${id}`).value.trim();
+  if(isNaN(buyPrice) || buyPrice < 0){ showToast('Укажите корректную закупочную цену'); return; }
+  if(isNaN(sellPrice) || sellPrice < 0){ showToast('Укажите корректную цену продажи'); return; }
+  try{
+    await api(`/finance/products/${id}/`, {method:'POST', body:{buy_price: buyPrice, sell_price: sellPrice, factory_name: factoryName}});
+    showToast('Сохранено');
+    loadFinanceProducts();
+  }catch(err){ showToast(err.message); }
+}
+
 // Автообновление списка каждые 8 секунд, чтобы видеть новые заказы без
 // ручного нажатия «Обновить» (но не перерисовываем открытую карточку, чтобы
 // не сбивать админа во время работы с ней).
-setInterval(()=>{ if(adminToken && currentMainTab==='orders') loadOrders(); }, 8000);
+setInterval(()=>{ if(adminToken && currentMainTab==='orders') loadOrders(true); }, 8000);
 
 if(adminToken) showDashboard(); else showLogin();
 </script>

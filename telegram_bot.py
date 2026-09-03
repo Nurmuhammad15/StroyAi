@@ -68,6 +68,31 @@ except ImportError:
 # сервиса бота). Локально можно оставить пустыми и вписать сюда вручную —
 # тогда используются значения по умолчанию ниже.
 # ---------------------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_dotenv():
+    """Тот же самый простой загрузчик .env, что и в backend.py (см. там
+    подробный комментарий) — нужен, если бот когда-нибудь запускают отдельным
+    процессом (не через backend.py, который и так прокидывает своё окружение
+    дочернему процессу бота)."""
+    env_path = os.path.join(BASE_DIR, '.env')
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, _, value = line.partition('=')
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv()
+
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '')  # токен от @BotFather
 ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID', '')  # id чата/канала администратора
 
@@ -77,7 +102,6 @@ ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID', '')  # id чата/канала 
 BACKEND_URL = os.environ.get('BACKEND_URL', 'http://127.0.0.1:8000').rstrip('/')
 NOTIFICATIONS_POLL_EVERY = 1  # опрашивать backend.py на новые чеки/бланки каждые N циклов getUpdates
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # INTERNAL_SECRET можно передать напрямую переменной окружения (нужно на
 # Railway — там backend и бот это разные контейнеры без общей файловой
 # системы, поэтому internal_secret.txt между ними не расшарить). Если не
@@ -175,6 +199,10 @@ def send_message(chat_id, text, reply_markup=None):
     return tg_call('sendMessage', params)
 
 
+def delete_message(chat_id, message_id):
+    return tg_call('deleteMessage', {'chat_id': chat_id, 'message_id': message_id})
+
+
 def edit_message_caption(chat_id, message_id, caption, reply_markup=None):
     params = {'chat_id': chat_id, 'message_id': message_id, 'caption': caption, 'parse_mode': 'HTML'}
     params['reply_markup'] = reply_markup or {'inline_keyboard': []}
@@ -245,7 +273,7 @@ def fmt_sum(amount):
     return f'{amount:,.0f}'.replace(',', ' ') + ' сум'
 
 
-def format_order_summary(order):
+def format_order_summary(order, show_delivery_line=True):
     lines = [f'<b>Заказ №{order["order_number"]}</b>']
     lines.append('Режим получения: ' + order['mode_display'])
     lines.append('')
@@ -253,7 +281,12 @@ def format_order_summary(order):
     for it in order['items']:
         name = it['product']['name'] if it['product'] else 'Товар'
         lines.append(f'• {name} × {it["quantity"]} — {fmt_sum(it["line_total"])}')
-    if order['mode'] == 'delivery':
+    # show_delivery_line=False — когда это подпись к картинке чека: там
+    # строка «Доставка: …» уже нарисована (см. build_receipt_image), и
+    # повторять её в тексте под фото не нужно — раньше сумма доставки
+    # печаталась дважды в одном и том же сообщении (на картинке и в
+    # тексте), что и путало.
+    if show_delivery_line and order['mode'] == 'delivery':
         if order.get('delivery_quoted'):
             lines.append(f'• Доставка — {fmt_sum(order["delivery_fee"])}')
         elif order.get('estimated_delivery_fee'):
@@ -265,23 +298,46 @@ def format_order_summary(order):
     return '\n'.join(lines)
 
 
-def format_receipt_message(order):
+def format_receipt_message(order, show_delivery_line=True):
     """Чек заказа, который администратор получает сразу при переходе клиента
     на страницу «Оформить заказ» (пункт 2 ТЗ) — до того, как клиент указал
     данные получения. Предоплаты нет — оплата на месте."""
-    summary = format_order_summary(order)
+    summary = format_order_summary(order, show_delivery_line=show_delivery_line)
     contact = order['customer'].get('phone') or order['customer'].get('email') or '—'
     lines = ['🧾 <b>Новый заказ</b>', '', summary, '', f'Клиент: {contact}']
     if order['mode'] == 'delivery' and not order.get('delivery_quoted'):
+        quotes = order.get('delivery_quotes') or []
+        pending_names = [q['factory_name'] for q in quotes if not q['submitted']]
         lines.append('')
-        lines.append('👇 Укажите стоимость доставки, чтобы клиент мог оформить заказ.')
+        if len(pending_names) > 1:
+            # Товары нескольких заводов — каждый директор указывает
+            # стоимость доставки СВОЕЙ части лично боту (см. setdelivf);
+            # итоговая доставка = сумма их ответов, применится, когда
+            # ответят ВСЕ перечисленные ниже.
+            lines.append('👇 Ожидаем стоимость доставки от заводов: ' + ', '.join(pending_names) +
+                          '. Кнопки ниже — на случай, если директор не ответит в личке.')
+        else:
+            lines.append('👇 Укажите стоимость доставки, чтобы клиент мог оформить заказ.')
     return '\n'.join(lines)
 
 
-def receipt_keyboard(order_number):
-    return {'inline_keyboard': [[
-        {'text': '📦 Указать стоимость доставки', 'callback_data': f'setdeliv:{order_number}'}
-    ]]}
+def receipt_keyboard(order_number, quotes=None):
+    """Кнопки «указать доставку» в канале — по одной на каждый завод, чьи
+    товары есть в заказе и кто ещё не ответил. Это подстраховка: если у
+    завода настроена личка директора (telegram_chat_id), ему ОТДЕЛЬНО
+    приходит то же самое в личные сообщения (см. process_notification,
+    kind == 'receipt') — отвечает либо он в личке, либо кто-то нажмёт эту
+    кнопку в канале, кто раньше."""
+    quotes = quotes or []
+    pending = [q for q in quotes if not q['submitted']]
+    if not pending:
+        return None
+    buttons = []
+    for q in pending:
+        fid = q['factory_id'] if q['factory_id'] is not None else 0
+        label = f'📦 Доставка — {q["factory_name"]}' if len(pending) > 1 else '📦 Указать стоимость доставки'
+        buttons.append([{'text': label, 'callback_data': f'setdelivf:{order_number}:{fid}'}])
+    return {'inline_keyboard': buttons}
 
 
 # ---------------------------------------------------------------------------
@@ -480,11 +536,11 @@ def build_receipt_image(order):
     return buf.getvalue()
 
 
-def admin_caption(order):
+def admin_caption(order, show_delivery_line=True):
     """Сообщение о том, что клиент подтвердил данные получения заказа на
     сайте (пункт 5 ТЗ) — состав заказа + имя/адрес/время. Оплата — на месте,
     без предоплаты и скриншотов."""
-    summary = format_order_summary(order)
+    summary = format_order_summary(order, show_delivery_line=show_delivery_line)
     contact = order['customer'].get('phone') or order['customer'].get('email') or '—'
     lines = ['📋 <b>Заказ подтверждён клиентом</b>', '', summary, '']
     lines.append(f'Заказчик: {order.get("customer_name") or order["customer"]["name"]}')
@@ -535,24 +591,39 @@ def handle_start(chat_id, order_number):
 def send_receipt_photo(order):
     """Отдельным сообщением шлёт в канал картинку готового чека (когда сумма
     уже окончательная) — используется после того, как админ вписал стоимость
-    доставки, см. handle_admin_price_reply()."""
+    доставки, см. handle_admin_price_reply(). Возвращает id отправленного
+    сообщения (или None), чтобы вызывающий код мог его запомнить и потом
+    удалить, когда придёт следующий этап (blank_submitted) — без этого в
+    канале оставались бы лишние картинки чека."""
     if not PIL_AVAILABLE:
-        return
+        return None
     try:
         photo_bytes = build_receipt_image(order)
     except Exception as e:  # noqa: BLE001 — картинка необязательна
         print(f'[bot] Не удалось нарисовать картинку чека №{order["order_number"]}: {e!r}')
-        return
-    send_photo(ADMIN_CHAT_ID, photo_bytes, f'receipt_{order["order_number"]}.jpg', 'image/jpeg')
+        return None
+    result = send_photo(ADMIN_CHAT_ID, photo_bytes, f'receipt_{order["order_number"]}.jpg', 'image/jpeg')
+    if result and result.get('ok'):
+        return result['result']['message_id']
+    return None
 
 
 def handle_admin_price_reply(state, chat_id, text):
-    order_number = state['admin_pending'].get(str(chat_id))
+    pending = state['admin_pending'].get(str(chat_id))
     digits = re.sub(r'[^0-9]', '', text)
     if not digits:
         send_message(chat_id, 'Не понял сумму. Пришлите стоимость доставки только цифрами, например: 35000')
         return
-    fee = int(digits)
+    amount = int(digits)
+
+    if isinstance(pending, dict):
+        # Ответ директора завода на СВОЮ часть доставки (несколько заводов в
+        # одном заказе) — см. handle_factory_price_reply.
+        handle_factory_price_reply(state, chat_id, pending, amount)
+        return
+
+    order_number = pending
+    fee = amount
     order = backend_call('POST', f'/internal/orders/by-number/{order_number}/set-delivery/', {'fee': fee})
     if not order:
         send_message(chat_id, 'Не удалось сохранить стоимость доставки — backend.py недоступен. Попробуйте ещё раз.')
@@ -564,27 +635,84 @@ def handle_admin_price_reply(state, chat_id, text):
         f'✅ Стоимость доставки для заказа №{order_number}: {fmt_sum(fee)}.\n'
         f'Итого к оплате: {fmt_sum(order["total"])}. Клиенту открылся бланк оплаты на сайте.'
     )
-    # Убираем кнопку «Указать доставку» из чека, чтобы её больше нельзя было нажать повторно.
+    # Раньше здесь редактировался старый текстовый чек (убиралась кнопка) И
+    # ОТДЕЛЬНО слался новый чек-картинка — в канале оставались ДВЕ карточки
+    # на один и тот же заказ (старая текстовая + новая картинкой). Теперь
+    # старое текстовое сообщение просто удаляется, и остаётся только одна,
+    # уже окончательная картинка чека — без дублей.
     receipt_msg_id = state.get('orders', {}).get(order_number, {}).get('receipt_msg_id')
     if receipt_msg_id:
-        full_text = format_receipt_message(order)
-        if state.get('orders', {}).get(order_number, {}).get('receipt_is_photo'):
-            caption = full_text if len(full_text) <= 1024 else (full_text[:1000].rsplit('\n', 1)[0] + '\n…')
-            edit_message_caption(chat_id, receipt_msg_id, caption, reply_markup=None)
-        else:
-            edit_message_text(chat_id, receipt_msg_id, full_text, reply_markup=None)
+        delete_message(chat_id, receipt_msg_id)
     # Сумма теперь окончательная — шлём картинку готового чека (см. флоу на скриншоте пользователя).
-    send_receipt_photo(order)
+    new_msg_id = send_receipt_photo(order)
+    if new_msg_id:
+        state.setdefault('orders', {}).setdefault(order_number, {})['receipt_msg_id'] = new_msg_id
+        save_state(state)
+
+
+def handle_factory_price_reply(state, chat_id, pending, amount):
+    """Директор одного из заводов (или кто-то в канале, нажавший кнопку
+    конкретного завода) прислал стоимость доставки СВОЕЙ части. Копится в
+    order_delivery_quotes; когда ответят ВСЕ заводы по этому заказу,
+    backend.py сам складывает их суммы в итоговую стоимость доставки."""
+    order_number = pending.get('order_number')
+    factory_id = pending.get('factory_id')
+    result = backend_call(
+        'POST', f'/internal/orders/by-number/{order_number}/set-delivery-quote/',
+        {'factory_id': factory_id, 'amount': amount}
+    )
+    if not result:
+        send_message(chat_id, 'Не удалось сохранить стоимость доставки — backend.py недоступен или этот завод уже '
+                               'ответил по этому заказу. Попробуйте ещё раз позже.')
+        return
+    state['admin_pending'].pop(str(chat_id), None)
+    save_state(state)
+    order = result['order']
+    quotes = result['quotes']
+
+    if result['all_done']:
+        send_message(
+            chat_id,
+            f'✅ Спасибо! Ваша часть доставки по заказу №{order_number} принята ({fmt_sum(amount)}).\n'
+            f'Все заводы ответили — итоговая доставка {fmt_sum(order["delivery_fee"])}, клиенту открылся '
+            f'бланк оплаты.'
+        )
+        # Заменяем «черновой» чек в канале (с кнопками, без итоговой цены) на
+        # финальную картинку с уже полной суммой — тот же приём, что и в
+        # обычном (одно-заводском) флоу, см. handle_admin_price_reply выше.
+        if ADMIN_CHAT_ID:
+            old_msg_id = state.get('orders', {}).get(order_number, {}).get('receipt_msg_id')
+            if old_msg_id:
+                delete_message(ADMIN_CHAT_ID, old_msg_id)
+            new_msg_id = send_receipt_photo(order)
+            if new_msg_id:
+                state.setdefault('orders', {}).setdefault(order_number, {})['receipt_msg_id'] = new_msg_id
+                save_state(state)
+    else:
+        pending_names = [q['factory_name'] for q in quotes if not q['submitted']]
+        send_message(
+            chat_id,
+            f'✅ Спасибо! Ваша часть доставки по заказу №{order_number} принята ({fmt_sum(amount)}).\n'
+            f'Ждём ещё: {", ".join(pending_names)}.'
+        )
+        if ADMIN_CHAT_ID:
+            send_message(
+                ADMIN_CHAT_ID,
+                f'📦 По заказу №{order_number} указана часть доставки ({fmt_sum(amount)}). '
+                f'Ждём ещё: {", ".join(pending_names)}.'
+            )
 
 
 def handle_callback_query(state, callback_query):
     data = callback_query.get('data', '')
-    action, _, order_number = data.partition(':')
+    parts = data.split(':')
+    action = parts[0]
     message = callback_query['message']
     admin_chat_id = message['chat']['id']
     admin_msg_id = message['message_id']
 
     if action == 'setdeliv':
+        order_number = parts[1] if len(parts) > 1 else ''
         state.setdefault('admin_pending', {})[str(admin_chat_id)] = order_number
         save_state(state)
         answer_callback_query(callback_query['id'])
@@ -592,6 +720,30 @@ def handle_callback_query(state, callback_query):
                                      f'(сум), например: 35000')
         return
 
+    if action == 'setdelivf':
+        order_number = parts[1] if len(parts) > 1 else ''
+        factory_id_raw = parts[2] if len(parts) > 2 else '0'
+        factory_id = None if factory_id_raw in ('0', 'none', '') else int(factory_id_raw)
+        # Достаём читаемое название завода для приглашения — по свежим
+        # данным заказа (имя завода не передаём через callback_data, чтобы
+        # не раздувать её и не тащить не-ASCII в идентификатор кнопки).
+        order = backend_call('GET', f'/internal/orders/by-number/{order_number}/')
+        factory_name = 'вашего завода'
+        if order:
+            for q in (order.get('delivery_quotes') or []):
+                if q['factory_id'] == factory_id:
+                    factory_name = q['factory_name']
+                    break
+        state.setdefault('admin_pending', {})[str(admin_chat_id)] = {
+            'order_number': order_number, 'factory_id': factory_id,
+        }
+        save_state(state)
+        answer_callback_query(callback_query['id'])
+        send_message(admin_chat_id, f'Заказ №{order_number} — впишите стоимость доставки для «{factory_name}» '
+                                     f'одним числом (сум), например: 35000')
+        return
+
+    order_number = parts[1] if len(parts) > 1 else ''
     if action not in ('confirm', 'reject'):
         answer_callback_query(callback_query['id'])
         return
@@ -603,8 +755,8 @@ def handle_callback_query(state, callback_query):
         return
 
     verdict = '✅ ОПЛАТА ПОДТВЕРЖДЕНА' if action == 'confirm' else '❌ ОПЛАТА ОТКЛОНЕНА'
-    new_caption = admin_caption(order) + f'\n\n<b>{verdict}</b>'
     is_photo = state.get('orders', {}).get(order_number, {}).get('is_photo')
+    new_caption = admin_caption(order, show_delivery_line=not is_photo) + f'\n\n<b>{verdict}</b>'
     if is_photo:
         edit_message_caption(admin_chat_id, admin_msg_id, new_caption, reply_markup=None)
     else:
@@ -629,7 +781,12 @@ def process_update(state, update):
             else:
                 send_message(chat_id, 'Здравствуйте! Оформление и оплата заказа происходят на сайте, '
                                        'в разделе «Оформить заказ».')
-        elif is_admin and str(chat_id) in state.get('admin_pending', {}) and text and not text.startswith('/'):
+        elif str(chat_id) in state.get('admin_pending', {}) and text and not text.startswith('/'):
+            # Раньше отвечать числом мог только сам админ-канал (is_admin).
+            # Теперь так же отвечают и директора заводов в личке боту — их
+            # chat_id туда попадает ТОЛЬКО через наш собственный код (после
+            # нажатия ими inline-кнопки на СВОЁ сообщение, см.
+            # handle_callback_query), так что действие всё равно доверенное.
             handle_admin_price_reply(state, chat_id, text)
         # прочие сообщения (в т.ч. случайные фото не по делу) — молча игнорируем
     elif 'callback_query' in update:
@@ -655,23 +812,27 @@ def process_notification(state, note):
         return False
 
     if kind == 'receipt':
-        text = format_receipt_message(order)
         needs_delivery_btn = (order['mode'] == 'delivery' and not order.get('delivery_quoted'))
-        kb = receipt_keyboard(order_number) if needs_delivery_btn else None
+        quotes = order.get('delivery_quotes') or []
+        kb = receipt_keyboard(order_number, quotes) if needs_delivery_btn else None
 
-        # Картинку чека шлём только когда сумма УЖЕ окончательная: при
-        # самовывозе она известна сразу, а при доставке — только после того,
-        # как админ впишет стоимость доставки (это отдельным шагом отправит
-        # send_receipt_photo() из handle_admin_price_reply). Пока доставка не
-        # посчитана, здесь как раньше уходит обычный текст с кнопкой.
+        # Картинку чека теперь шлём всегда, даже пока доставка ещё не
+        # посчитана — build_receipt_image сам печатает «ожидает расчёта»
+        # вместо суммы (см. build_receipt_image). Раньше здесь до расчёта
+        # доставки уходил обычный текст без картинки — из-за этого первое
+        # уведомление в канале выглядело иначе, чем финальное «Заказ
+        # подтверждён клиентом» (с картинкой), и это сбивало с толку.
         photo_bytes = None
-        if PIL_AVAILABLE and not needs_delivery_btn:
+        if PIL_AVAILABLE:
             try:
                 photo_bytes = build_receipt_image(order)
             except Exception as e:  # noqa: BLE001 — картинка необязательна, не роняем уведомление
                 print(f'[bot] Не удалось нарисовать картинку чека №{order_number}: {e!r}')
 
         if photo_bytes:
+            # Строку «Доставка: …» под фото не дублируем — она уже нарисована
+            # на самой картинке чека (см. show_delivery_line).
+            text = format_receipt_message(order, show_delivery_line=False)
             # У caption для sendPhoto жёсткий лимит Телеграма — 1024 символа.
             # У большинства заказов текст короче, но на всякий случай (много
             # позиций) подрежем подпись — вся детализация всё равно видна на
@@ -681,6 +842,9 @@ def process_notification(state, note):
                                  caption=caption, reply_markup=kb)
             is_photo = True
         else:
+            # Без картинки (Pillow недоступен) — единственное место, где видна
+            # сумма доставки, поэтому здесь строку оставляем.
+            text = format_receipt_message(order, show_delivery_line=True)
             result = send_message(ADMIN_CHAT_ID, text, reply_markup=kb)
             is_photo = False
 
@@ -689,19 +853,70 @@ def process_notification(state, note):
                 result['result']['message_id']
             state['orders'][order_number]['receipt_is_photo'] = is_photo
             save_state(state)
+            # В личку каждому директору, у кого настроен telegram_chat_id и чей
+            # завод есть в заказе, — отдельным сообщением с кнопкой. Так ему не
+            # нужно сидеть в общем канале — а если он всё же не ответит там,
+            # сработает подстраховка кнопками в самом канале (см. receipt_keyboard).
+            if needs_delivery_btn:
+                for q in quotes:
+                    if q['submitted'] or not q['telegram_chat_id']:
+                        continue
+                    fid = q['factory_id'] if q['factory_id'] is not None else 0
+                    director_kb = {'inline_keyboard': [[
+                        {'text': '📦 Указать стоимость доставки', 'callback_data': f'setdelivf:{order_number}:{fid}'}
+                    ]]}
+                    send_message(
+                        q['telegram_chat_id'],
+                        f'📦 <b>Новый заказ №{order_number}</b> — есть товары вашего завода '
+                        f'(«{q["factory_name"]}»).\n\nВпишите стоимость доставки вашей части, чтобы клиент '
+                        f'мог оформить заказ.',
+                        reply_markup=director_kb,
+                    )
             return True
         print(f'[bot] Не удалось отправить чек заказа №{order_number} — попробую снова на следующем опросе.')
         return False
 
     elif kind == 'blank_submitted':
-        # Предоплаты и скриншотов больше нет — просто текстовое сообщение
-        # с данными, которые клиент указал на сайте (имя, адрес, время).
-        caption = admin_caption(order)
-        result = send_message(ADMIN_CHAT_ID, caption, reply_markup=admin_keyboard(order_number))
+        # Клиент подтвердил данные получения — раньше здесь уходило обычное
+        # текстовое сообщение (без картинки чека). Переводим на тот же
+        # формат картинки, что и везде — один узнаваемый вид чека на весь
+        # жизненный цикл заказа, без вперемешку текстовых и графических
+        # карточек в канале.
+        #
+        # Предыдущая карточка ('receipt', отправленная при создании заказа
+        # или после того как админ указал стоимость доставки) на этом этапе
+        # уже устарела — убираем её, чтобы в канале не оставались ДВЕ
+        # картинки чека по одному и тому же заказу подряд.
+        old_receipt_msg_id = state.get('orders', {}).get(order_number, {}).get('receipt_msg_id')
+        if old_receipt_msg_id:
+            delete_message(ADMIN_CHAT_ID, old_receipt_msg_id)
+            state['orders'][order_number].pop('receipt_msg_id', None)
+            save_state(state)
+
+        caption_text = admin_caption(order, show_delivery_line=False)
+        # Полная версия (со строкой «Доставка») — на случай, если Pillow
+        # недоступен и картинки не будет: тогда это единственное место,
+        # где сумма доставки вообще видна.
+        caption_text_full = admin_caption(order, show_delivery_line=True)
+        kb = admin_keyboard(order_number)
+        photo_bytes = None
+        if PIL_AVAILABLE:
+            try:
+                photo_bytes = build_receipt_image(order)
+            except Exception as e:  # noqa: BLE001 — картинка необязательна
+                print(f'[bot] Не удалось нарисовать картинку чека №{order_number}: {e!r}')
+        if photo_bytes:
+            caption = caption_text if len(caption_text) <= 1024 else (caption_text[:1000].rsplit('\n', 1)[0] + '\n…')
+            result = send_photo(ADMIN_CHAT_ID, photo_bytes, f'receipt_{order_number}.jpg', 'image/jpeg',
+                                 caption=caption, reply_markup=kb)
+            is_photo = True
+        else:
+            result = send_message(ADMIN_CHAT_ID, caption_text_full, reply_markup=kb)
+            is_photo = False
         if result and result.get('ok'):
             state.setdefault('orders', {}).setdefault(order_number, {})['admin_message_id'] = \
                 result['result']['message_id']
-            state['orders'][order_number]['is_photo'] = False
+            state['orders'][order_number]['is_photo'] = is_photo
             save_state(state)
             return True
         print(f'[bot] Не удалось отправить бланк оплаты заказа №{order_number} — попробую снова на следующем опросе.')
@@ -721,6 +936,57 @@ def process_notification(state, note):
             lines.append(f'Адрес доставки: {order.get("delivery_address") or "—"}')
         lines.append(f'Желаемое время: {order.get("desired_time") or "—"}')
         result = send_message(ADMIN_CHAT_ID, '\n'.join(lines))
+        return bool(result and result.get('ok'))
+
+    # --- события, пришедшие из веб-панели /admin, а не из ответа боту в
+    # Telegram (там бот сам себе шлёт сообщение напрямую, без очереди) ---
+    elif kind == 'admin_delivery_set':
+        # Тот же принцип, что и когда цену вписывают ответом боту: убираем
+        # старое "черновое" сообщение чека (без цены доставки) и оставляем
+        # только один, уже окончательный чек-картинку — без параллельных
+        # текстовых уведомлений на тот же заказ.
+        old_msg_id = state.get('orders', {}).get(order_number, {}).get('receipt_msg_id')
+        if old_msg_id:
+            delete_message(ADMIN_CHAT_ID, old_msg_id)
+        photo_bytes = None
+        if PIL_AVAILABLE:
+            try:
+                photo_bytes = build_receipt_image(order)
+            except Exception as e:  # noqa: BLE001
+                print(f'[bot] Не удалось нарисовать картинку чека №{order_number}: {e!r}')
+        if photo_bytes:
+            caption = format_receipt_message(order, show_delivery_line=False)
+            if len(caption) > 1024:
+                caption = caption[:1000].rsplit('\n', 1)[0] + '\n…'
+            result = send_photo(ADMIN_CHAT_ID, photo_bytes, f'receipt_{order_number}.jpg', 'image/jpeg', caption=caption)
+        else:
+            text = (f'🚚 <b>Стоимость доставки указана в панели администратора</b>\n\n'
+                    f'Заказ №{order_number}\n'
+                    f'Доставка: {fmt_sum(order["delivery_fee"])}\n'
+                    f'Итого к оплате: {fmt_sum(order["total"])}')
+            result = send_message(ADMIN_CHAT_ID, text)
+        if result and result.get('ok'):
+            state.setdefault('orders', {}).setdefault(order_number, {})['receipt_msg_id'] = \
+                result['result']['message_id']
+            save_state(state)
+        return bool(result and result.get('ok'))
+
+    elif kind == 'admin_payment_confirmed':
+        text = (f'✅ <b>Оплата подтверждена в панели администратора</b>\n\n'
+                f'Заказ №{order_number} на сумму {fmt_sum(order["total"])}.')
+        result = send_message(ADMIN_CHAT_ID, text)
+        return bool(result and result.get('ok'))
+
+    elif kind == 'admin_payment_rejected':
+        text = (f'❌ <b>Оплата отклонена в панели администратора</b>\n\n'
+                f'Заказ №{order_number}.')
+        result = send_message(ADMIN_CHAT_ID, text)
+        return bool(result and result.get('ok'))
+
+    elif kind == 'admin_status_changed':
+        text = (f'📦 <b>Статус заказа изменён в панели администратора</b>\n\n'
+                f'Заказ №{order_number}: {order["status_display"]}')
+        result = send_message(ADMIN_CHAT_ID, text)
         return bool(result and result.get('ok'))
 
     # Неизвестный тип уведомления — подтверждаем, чтобы не зациклиться на нём навсегда.
