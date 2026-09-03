@@ -288,8 +288,11 @@ function showToast(msg){
   showToast._t = setTimeout(()=>t.classList.remove('show'), 2500);
 }
 
+// См. index.html — тот же переход на прямые запросы к Railway вместо
+// прокси через vercel.json (был нестабильным, давал NOT_FOUND).
+const API_BASE = 'https://web-production-619ab.up.railway.app/api';
 async function api(path, {method='GET', body=null} = {}){
-  const res = await fetch('/api/admin' + path, {
+  const res = await fetch(API_BASE + '/admin' + path, {
     method,
     headers:{'Content-Type':'application/json', 'X-Admin-Token': adminToken},
     body: body ? JSON.stringify(body) : null
@@ -321,7 +324,7 @@ async function doLogin(){
   const errEl = document.getElementById('loginError');
   errEl.textContent = '';
   try{
-    const res = await fetch('/api/admin/login/', {
+    const res = await fetch(API_BASE + '/admin/login/', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password})
     });
     const data = await res.json();
