@@ -19,7 +19,6 @@ import mimetypes
 import os
 import re
 import secrets
-import smtplib
 import string
 import subprocess
 import sys
@@ -27,11 +26,11 @@ import atexit
 import threading
 import time
 import urllib.request
+import urllib.error
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 from datetime import datetime, timedelta, timezone
-from email.mime.text import MIMEText
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -167,33 +166,30 @@ PREPAY_PERCENT_LOW = 30
 # Настройки почты (Gmail App Password) — для реальной отправки OTP-кодов.
 #
 # Как получить пароль приложения в Gmail:
-#   1. Включите двухфакторную аутентификацию на аккаунте Google (обязательно,
-#      без неё пароль приложения не создать):
-#      https://myaccount.google.com/security
-#   2. Зайдите на https://myaccount.google.com/apppasswords
-#   3. Создайте новый пароль приложения (название — любое, например "reno").
-#   4. Google покажет пароль из 16 символов — скопируйте его без пробелов.
-#   5. Впишите ниже EMAIL_HOST_USER (ваша почта) и EMAIL_HOST_PASSWORD
-#      (тот самый 16-значный пароль, НЕ обычный пароль от Gmail).
-#
-# Если оставить пустым — коды по-прежнему будут просто печататься в консоль
-# (как раньше), сайт при этом продолжит работать.
-#
-# ВАЖНО: раньше эти данные были прописаны прямо в коде текстом. Это плохо —
-# любой, кто увидит файл (в архиве, в чате, в публичном репозитории),
-# получает доступ к вашей почте. Теперь их можно (и нужно) задавать через
-# переменные окружения — на Railway это вкладка Variables у сервиса backend:
-#   EMAIL_HOST_USER=ваша-почта@gmail.com
-#   EMAIL_HOST_PASSWORD=шестнадцатизначный-пароль-приложения
-# Если переменные не заданы — используются значения по умолчанию ниже
-# (оставлены для локального запуска), но их СТОИТ ЗАМЕНИТЬ на новые: пароль
-# приложения из предыдущей версии файла уже "засветился" и его нужно
-# отозвать на https://myaccount.google.com/apppasswords и выпустить новый.
+# ПОЧЕМУ НЕ SMTP: Railway блокирует исходящие SMTP-соединения (порты 25,
+# 465, 587, 2525) на тарифах Free/Trial/Hobby — SMTP разрешён только на
+# платном тарифе Pro. Поэтому прямая отправка через smtplib/Gmail здесь не
+# работает в принципе (ошибка "[Errno 101] Network is unreachable" — это
+# блокировка сети, а не проблема пароля). Обычный HTTPS никто не блокирует,
+# поэтому письма теперь уходят через HTTP API сервиса Brevo (бывш. Sendinblue):
+#   1. Зарегистрируйтесь бесплатно: https://www.brevo.com (300 писем/день
+#      бесплатно навсегда, без привязки карты).
+#   2. Settings → Senders, Domains, IPs → Senders → Add a sender → впишите
+#      вашу почту (например ту же gjjnn05@gmail.com) → Brevo пришлёт на неё
+#      письмо с 6-значным кодом → введите код. Домен/DNS настраивать не нужно.
+#   3. Settings → SMTP & API → API Keys → Generate a new API key → скопируйте
+#      ключ (вида xkeysib-...).
+#   4. На Railway, во вкладке Variables у сервиса backend, добавьте:
+#        BREVO_API_KEY=xkeysib-ваш-ключ
+#        EMAIL_HOST_USER=та-самая-подтверждённая-в-Brevo-почта@gmail.com
+#      (EMAIL_HOST_PASSWORD/EMAIL_HOST/EMAIL_PORT больше не нужны и не
+#      используются.)
+# Если BREVO_API_KEY не задан — коды по-прежнему печатаются в консоль (как
+# раньше), сайт при этом продолжит работать.
 # ---------------------------------------------------------------------------
-EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+BREVO_API_KEY = os.environ.get('BREVO_API_KEY', '')
+BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gjjnn05@gmail.com')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'dyvnaanzuspsmevx')
 EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'StroyAI')
 
 STATUS_LABELS = {
@@ -1529,45 +1525,53 @@ def gen_code(n=6):
 
 def send_otp_email(to_address, code):
     """
-    Отправляет код подтверждения на настоящую почту через Gmail (App Password).
-    Возвращает True, если письмо реально ушло; False — если email не настроен
-    или отправка не удалась (в обоих случаях код всё равно печатается в консоль,
-    чтобы тестировать можно было в любом случае).
+    Отправляет код подтверждения через HTTP API Brevo (не SMTP — см. пояснение
+    выше про блокировку SMTP на Railway). Возвращает True, если письмо реально
+    ушло; False — если API-ключ не настроен или отправка не удалась (в обоих
+    случаях код всё равно печатается в консоль, чтобы тестировать можно было
+    в любом случае).
     """
-    if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD:
-        print('[email] EMAIL_HOST_USER/EMAIL_HOST_PASSWORD не заданы — письмо не отправлено, код только в консоли.')
+    if not BREVO_API_KEY or not EMAIL_HOST_USER:
+        print('[email] BREVO_API_KEY/EMAIL_HOST_USER не заданы — письмо не отправлено, код только в консоли.')
         return False
-    try:
-        msg = MIMEText(
+    payload = json.dumps({
+        'sender': {'name': EMAIL_FROM_NAME, 'email': EMAIL_HOST_USER},
+        'to': [{'email': to_address}],
+        'subject': f'Код подтверждения: {code}',
+        'textContent': (
             f'Ваш код подтверждения: {code}\n\nОн действует 5 минут.\n\n'
-            f'Если вы не запрашивали вход — просто проигнорируйте это письмо.',
-            'plain', 'utf-8'
-        )
-        msg['Subject'] = f'Код подтверждения: {code}'
-        msg['From'] = f'{EMAIL_FROM_NAME} <{EMAIL_HOST_USER}>'
-        msg['To'] = to_address
-
-        # timeout увеличен до 20с — на бесплатных тарифах Railway первое
-        # SMTP-соединение до Gmail иногда устанавливается дольше 10с.
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT, timeout=20) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
-            server.sendmail(EMAIL_HOST_USER, [to_address], msg.as_string())
-        print(f'[email] Письмо с кодом успешно отправлено на {to_address}.')
+            f'Если вы не запрашивали вход — просто проигнорируйте это письмо.'
+        ),
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        BREVO_API_URL,
+        data=payload,
+        method='POST',
+        headers={
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'api-key': BREVO_API_KEY,
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+        print(f'[email] Письмо с кодом успешно отправлено на {to_address} (через Brevo).')
         return True
-    except smtplib.SMTPAuthenticationError as e:
-        # Самая частая причина: пароль приложения неверный/отозван, либо
-        # для аккаунта EMAIL_HOST_USER отключена двухфакторная аутентификация
-        # (без неё Google не принимает пароли приложений вообще).
-        print(f'[email] ОШИБКА АВТОРИЗАЦИИ на {EMAIL_HOST_USER}: {e}. '
-              f'Проверьте: 1) включена ли двухфакторная аутентификация на этом '
-              f'аккаунте Google; 2) не отозван ли пароль приложения на '
-              f'https://myaccount.google.com/apppasswords; 3) выпустите новый '
-              f'пароль приложения и обновите переменную EMAIL_HOST_PASSWORD.')
+    except urllib.error.HTTPError as e:
+        body = ''
+        try:
+            body = e.read().decode('utf-8', 'replace')
+        except Exception:  # noqa: BLE001
+            pass
+        # Самая частая причина 401/403: отправитель EMAIL_HOST_USER не
+        # подтверждён в Brevo (Settings → Senders) или API-ключ неверный/отозван.
+        print(f'[email] Brevo отказал в отправке на {to_address} '
+              f'(HTTP {e.code}): {body}. Проверьте: 1) подтверждён ли отправитель '
+              f'{EMAIL_HOST_USER} в Brevo (Settings → Senders, Domains, IPs → Senders); '
+              f'2) действителен ли BREVO_API_KEY.')
         return False
-    except (smtplib.SMTPException, OSError) as e:  # noqa: BLE001
+    except (urllib.error.URLError, OSError) as e:
         print(f'[email] Не удалось отправить письмо на {to_address} '
               f'({type(e).__name__}): {e}')
         return False
@@ -2952,12 +2956,12 @@ def main():
     print(f'Сайт:   http://127.0.0.1:{PORT}/')
     print(f'API:    http://127.0.0.1:{PORT}/api/health/')
     print(f'База данных: PostgreSQL ({"подключено" if DATABASE_URL else "DATABASE_URL не задан!"})')
-    if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    if BREVO_API_KEY and EMAIL_HOST_USER:
         _masked = EMAIL_HOST_USER[:2] + '***' + EMAIL_HOST_USER[EMAIL_HOST_USER.find('@'):]
-        print(f'Email OTP: настроен, отправитель {_masked} через {EMAIL_HOST}:{EMAIL_PORT}. '
+        print(f'Email OTP: настроен, отправитель {_masked} через Brevo API (HTTP, не SMTP). '
               f'Если письма не доходят — смотрите строки "[email] ..." ниже в логах.')
     else:
-        print('Email OTP: НЕ настроен (нет EMAIL_HOST_USER/EMAIL_HOST_PASSWORD) — коды печатаются в консоль.')
+        print('Email OTP: НЕ настроен (нет BREVO_API_KEY/EMAIL_HOST_USER) — коды печатаются в консоль.')
     print('Коды подтверждения (OTP) в любом случае дублируются прямо сюда, в консоль, если письмо не ушло.')
     print('-' * 60)
     atexit.register(_stop_telegram_bot_subprocess)
