@@ -176,6 +176,20 @@
   .utp-strip div{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;text-align:center;}
   .utp-strip span{font-size:10.5px;font-weight:700;color:var(--text-2);line-height:1.25;}
 
+  .store-stats{
+    display:flex;gap:10px;margin:0 18px 22px;
+  }
+  .store-stats .stat-card{
+    flex:1;background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:14px 8px;text-align:center;display:flex;flex-direction:column;gap:3px;
+  }
+  .store-stats .stat-num{font-size:18px;font-weight:800;color:var(--primary);line-height:1.1;}
+  .store-stats .stat-label{font-size:10.5px;font-weight:600;color:var(--text-2);line-height:1.25;}
+  @media (min-width:860px){
+    .store-stats .stat-num{font-size:22px;}
+    .store-stats .stat-label{font-size:12px;}
+  }
+
   /* На телефоне (узкий экран) пункты нижнего меню "ИИ-Дизайн" и "Строители"
      скрыты — остаются только на десктопе, где .bottom-nav превращается в
      боковое меню (см. @media (min-width: 860px) ниже). */
@@ -810,6 +824,12 @@
       <div>📐 <span data-i18n="utp_calc">Считаем точно — без лишнего</span></div>
     </div>
 
+    <div class="store-stats" id="storeStats">
+      <div class="stat-card"><span class="stat-num" id="statSold">—</span><span class="stat-label" data-i18n="stat_sold">Товаров продано</span></div>
+      <div class="stat-card"><span class="stat-num" id="statProducts">—</span><span class="stat-label" data-i18n="stat_products">В каталоге</span></div>
+      <div class="stat-card"><span class="stat-num" id="statClients">—</span><span class="stat-label" data-i18n="stat_clients">Клиентов</span></div>
+    </div>
+
     <div class="section-head"><h3 data-i18n="popular_styles">Популярные стили</h3></div>
     <div class="styles-row" id="homeStylesRow"></div>
 
@@ -1181,7 +1201,7 @@
     <div class="theme-toggle-row lang-switch">
       <div class="theme-switch">
         <button data-lang="uz" onclick="setLang('uz')" title="O'zbek">UZ</button>
-        <button data-lang="ru" onclick="setLang('ru')" title="Global (русский)">🌐</button>
+        <button data-lang="ru" onclick="setLang('ru')" title="Русский">RU</button>
       </div>
       <span>Til / Язык</span>
     </div>
@@ -1261,6 +1281,7 @@ const I18N = {
     hero_btn:'Hisoblash →',
     utp_price:'Ulgurji narxlarga yaqin', utp_delivery:'Toshkent va viloyat bo\'ylab yetkazib berish',
     utp_calc:'Aniq hisoblaymiz — ortiqchasiz',
+    stat_sold:'Sotilgan mahsulot', stat_products:'Katalogda', stat_clients:'Mijozlar',
     popular_styles:'Mashhur uslublar', how_it_works:'Bu qanday ishlaydi',
     step1:'Kerakli materiallarni katalogdan tanlang', step2:'Savatga qo\'shing va buyurtma rasmiylashtiring',
     step3:'Toshkent va viloyat bo\'ylab hammasini olib kelamiz', step4:'«Buyurtmalarim» bo\'limida holatni kuzating',
@@ -1331,6 +1352,7 @@ const I18N = {
     hero_btn:'Рассчитать →',
     utp_price:'Цены ближе к оптовым', utp_delivery:'Доставка по Ташкенту и области',
     utp_calc:'Считаем точно — без лишнего',
+    stat_sold:'Товаров продано', stat_products:'В каталоге', stat_clients:'Клиентов',
     popular_styles:'Популярные стили', how_it_works:'Как это работает',
     step1:'Выберите нужные материалы в каталоге', step2:'Добавьте в корзину и оформите заказ',
     step3:'Мы привезём всё по Ташкенту и области', step4:'Следите за статусом в разделе «Мои заказы»',
@@ -1613,6 +1635,27 @@ function styleThumbHTML(s){
 function renderStyles(){
   const el = document.getElementById('homeStylesRow');
   if(el) el.innerHTML = styles.map(s=>styleThumbHTML(s)).join('');
+}
+
+/* Статистика на главной («продано / в каталоге / клиентов») — берётся из
+   публичного эндпоинта /store-stats/, чтобы не зависеть от того, успел ли
+   уже загрузиться весь каталог. Если бэкенд не ответил — просто скрываем
+   блок, чтобы не показывать тире вечно. */
+function fmtStatNum(n){
+  n = Number(n) || 0;
+  if(n >= 1000) return Math.round(n/1000*10)/10 + 'k';
+  return String(n);
+}
+async function loadStoreStats(){
+  try{
+    const data = await api('/store-stats/', {auth:false});
+    document.getElementById('statSold').textContent = fmtStatNum(data.sold_count);
+    document.getElementById('statProducts').textContent = fmtStatNum(data.products_count);
+    document.getElementById('statClients').textContent = fmtStatNum(data.clients_count);
+  }catch(err){
+    const el = document.getElementById('storeStats');
+    if(el) el.style.display = 'none';
+  }
 }
 
 /* ============ TOAST ============ */
@@ -3039,6 +3082,7 @@ async function loadUsdRate(){
   document.getElementById('cityLabel').textContent = state.lang === 'uz' ? 'Toshkent' : state.city;
   renderCityOptions();
   loadUsdRate();
+  loadStoreStats();
   await loadCategories();
   await loadCatalog();
   await restoreSession();

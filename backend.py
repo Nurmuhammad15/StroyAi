@@ -2120,6 +2120,29 @@ class Handler(BaseHTTPRequestHandler):
             rows = conn.execute('SELECT * FROM categories ORDER BY id').fetchall()
             return [{'id': r['id'], 'name': r['name'], 'name_uz': r['name_uz'], 'slug': r['slug']} for r in rows]
 
+        if p == '/store-stats/' and method == 'GET':
+            # Публичная сводка для главной страницы клиентского приложения:
+            # сколько товаров продано (сумма количеств в завершённых заказах),
+            # сколько позиций в каталоге и сколько клиентов зарегистрировано.
+            # Ничего приватного не отдаём — только агрегированные числа.
+            products_count = conn.execute(
+                'SELECT COUNT(*) c FROM products WHERE in_stock=1'
+            ).fetchone()['c']
+            sold_row = conn.execute(
+                "SELECT COALESCE(SUM(oi.quantity),0) s FROM order_items oi "
+                "JOIN orders o ON o.id = oi.order_id WHERE o.status = 'completed'"
+            ).fetchone()
+            orders_row = conn.execute(
+                "SELECT COUNT(*) c FROM orders WHERE status = 'completed'"
+            ).fetchone()
+            clients_row = conn.execute('SELECT COUNT(*) c FROM users').fetchone()
+            return {
+                'products_count': products_count,
+                'sold_count': int(sold_row['s'] or 0),
+                'completed_orders_count': orders_row['c'],
+                'clients_count': clients_row['c'],
+            }
+
         if p == '/products/' and method == 'GET':
             sql = 'SELECT p.* FROM products p JOIN categories c ON c.id=p.category_id WHERE 1=1'
             params = []
