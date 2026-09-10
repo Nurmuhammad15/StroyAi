@@ -23,6 +23,9 @@ import string
 import subprocess
 import sys
 import atexit
+import base64
+import collections
+import concurrent.futures
 import threading
 import time
 import urllib.request
@@ -132,9 +135,46 @@ PICKUP_HOURS = 'Ежедневно 9:00–19:00'
 PICKUP_READY_MINUTES = 60   # сколько обычно готовится заказ к самовывозу «как можно скорее»
 
 # Пароль входа в панель администратора (отдельная страница /admin/ — там
-# видно ВСЕ заказы всех клиентов и можно подтверждать каждый шаг вручную).
-# Обязательно смените перед тем, как показывать сайт кому-то ещё, кроме себя.
-ADMIN_PANEL_PASSWORD = 'admin123'
+# видно ВСЕ заказы всех клиентов и можно подтверждать каждый шаг вручную,
+# а также есть полная очистка базы данных).
+#
+# ВАЖНО: раньше здесь был захардкожен пароль 'admin123' прямо в коде —
+# любой, кто открывал этот файл (архив в чате, GitHub-репозиторий и т.п.),
+# получал полный доступ к сайту, включая стирание базы данных. Теперь
+# пароль обязательно берётся из переменной окружения на Railway:
+#   ADMIN_PANEL_PASSWORD=длинный-случайный-пароль
+# Если переменная не задана — используется старый пароль 'admin123' ТОЛЬКО
+# чтобы не заблокировать вам доступ прямо сейчас, но при каждом старте
+# сервера в логи печатается громкое предупреждение (см. main()) — задайте
+# нормальный пароль на Railway и смените его как можно скорее.
+ADMIN_PANEL_PASSWORD = os.environ.get('ADMIN_PANEL_PASSWORD', 'admin123')
+
+# Простая защита от подбора пароля админки: считаем неудачные попытки входа
+# за последние 15 минут (в памяти процесса — общий счётчик на весь сервер,
+# не по IP, потому что на Railway обычные адреса подключений — это внутренние
+# адреса прокси, а не реальные IP посетителей, см. обсуждение в чате). Не
+# идеально (один настойчивый атакующий может временно затруднить вход и
+# настоящему админу), но закрывает главную дыру — неограниченный перебор
+# 'admin123'-подобных паролей без какого-либо предела попыток.
+_admin_login_failures = collections.deque(maxlen=200)
+_admin_login_lock = threading.Lock()
+ADMIN_LOGIN_MAX_FAILURES = 10
+ADMIN_LOGIN_WINDOW_SECONDS = 900  # 15 минут
+
+
+def _check_admin_login_throttle():
+    with _admin_login_lock:
+        now = time.time()
+        while _admin_login_failures and now - _admin_login_failures[0] > ADMIN_LOGIN_WINDOW_SECONDS:
+            _admin_login_failures.popleft()
+        if len(_admin_login_failures) >= ADMIN_LOGIN_MAX_FAILURES:
+            raise ApiError(429, 'Слишком много неудачных попыток входа в админку. Попробуйте через 15 минут.')
+
+
+def _record_admin_login_failure():
+    with _admin_login_lock:
+        _admin_login_failures.append(time.time())
+
 
 # Общий секрет между backend.py и telegram_bot.py (чтобы бот мог читать и
 # подтверждать заказы через служебные /api/internal/... эндпоинты). Секрет
@@ -191,6 +231,100 @@ BREVO_API_KEY = os.environ.get('BREVO_API_KEY', '')
 BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gjjnn05@gmail.com')
 EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'StroyAI')
+
+# ---------------------------------------------------------------------------
+# ИИ-Дизайн: по текстовому промпту пользователя генерируем через OpenAI
+# Images API (модель gpt-image-1) несколько картинок дома — с разных
+# ракурсов + отдельно эскиз планировки (НЕ настоящий чертёж со размерами,
+# просто иллюстрация «как может выглядеть» — так и подписываем на сайте).
+# Нужно на Railway задать:
+#   OPENAI_API_KEY=sk-...
+# Без ключа раздел ИИ-Дизайна возвращает понятную ошибку вместо падения.
+# ---------------------------------------------------------------------------
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+OPENAI_IMAGE_MODEL = os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-1')
+OPENAI_IMAGES_URL = 'https://api.openai.com/v1/images/generations'
+# Сколько раз в сутки один пользователь может запускать генерацию —
+# каждый запуск это 4 платных вызова OpenAI, ограничиваем, чтобы никто
+# случайно (или специально) не «съел» весь бюджет за один вечер.
+AI_DESIGN_DAILY_LIMIT = int(os.environ.get('AI_DESIGN_DAILY_LIMIT', '3'))
+GENERATED_DIR = os.path.join(BASE_DIR, 'generated')
+
+# ---------------------------------------------------------------------------
+# CORS: раньше Access-Control-Allow-Origin был '*' — API отвечало вообще
+# любому сайту в интернете, не только нашему. Теперь список разрешённых
+# доменов явный. Можно расширить/сменить через переменную окружения на
+# Railway CORS_ALLOWED_ORIGINS (через запятую, без пробелов), например:
+#   CORS_ALLOWED_ORIGINS=https://stroy-a1.vercel.app,https://мой-домен.com
+# localhost разрешён всегда — иначе локальная разработка сломается.
+_default_origins = (
+    'https://stroy-a1.vercel.app,'
+    'https://web-production-619ab.up.railway.app'
+)
+ALLOWED_ORIGINS = set(
+    o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS', _default_origins).split(',') if o.strip()
+)
+
+# Каждый элемент: (ключ_ракурса, подпись для промпта). Подпись добавляется
+# К промпту пользователя, а не заменяет его — так по одному описанию дома
+# получается небольшой, но цельный комплект картинок.
+AI_DESIGN_ANGLES = [
+    ('front', 'Фасад дома спереди, вид с улицы, реалистичное фото, дневной свет'),
+    ('side', 'Тот же дом, вид сбоку (с торца), реалистичное фото, дневной свет'),
+    ('perspective', 'Тот же дом, вид с угла в три четверти, реалистичное фото, дневной свет'),
+    ('plan', 'Схематичный эскиз плана этажа этого дома сверху, простая чёрно-белая '
+             'архитектурная иллюстрация с расстановкой комнат (НЕ фото, стиль плана '
+             'помещения, без точных размеров)'),
+]
+
+
+def generate_openai_image(prompt):
+    """
+    Один вызов OpenAI Images API. Возвращает bytes картинки (PNG).
+    Бросает ApiError с понятным текстом, если ключ не настроен или API
+    отказал (неверный ключ, нет доступа к модели, сработал фильтр контента
+    и т.п.) — чтобы пользователь увидел причину, а не просто "ошибка".
+    """
+    if not OPENAI_API_KEY:
+        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен OPENAI_API_KEY на сервере.')
+    payload = json.dumps({
+        'model': OPENAI_IMAGE_MODEL,
+        'prompt': prompt,
+        'size': '1024x1024',
+        'n': 1,
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        OPENAI_IMAGES_URL,
+        data=payload,
+        method='POST',
+        headers={
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {OPENAI_API_KEY}',
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        body = ''
+        try:
+            body = e.read().decode('utf-8', 'replace')
+        except Exception:  # noqa: BLE001
+            pass
+        print(f'[ai-design] OpenAI отказал (HTTP {e.code}): {body}')
+        if e.code == 401:
+            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный OPENAI_API_KEY.')
+        if e.code == 429:
+            raise ApiError(429, 'ИИ-Дизайн: превышен лимит запросов/бюджет у OpenAI, попробуйте позже.')
+        raise ApiError(502, 'ИИ-Дизайн: сервис генерации изображений вернул ошибку, попробуйте другой запрос.')
+    except (urllib.error.URLError, OSError) as e:
+        print(f'[ai-design] Сеть недоступна ({type(e).__name__}): {e}')
+        raise ApiError(502, 'ИИ-Дизайн: не удалось связаться с сервисом генерации изображений.')
+    try:
+        b64 = data['data'][0]['b64_json']
+    except (KeyError, IndexError, TypeError):
+        raise ApiError(502, 'ИИ-Дизайн: сервис генерации вернул неожиданный ответ.')
+    return base64.b64decode(b64)
 
 STATUS_LABELS = {
     'processing': 'В обработке',
@@ -566,6 +700,21 @@ SCHEMA_STATEMENTS = [
         amount DOUBLE PRECISION,
         created_at TEXT NOT NULL
     )''',
+    # Одна строка = один запуск ИИ-дизайна (по одному промпту пользователя
+    # генерируется сразу несколько картинок — разные ракурсы фасада плюс
+    # эскиз планировки). images_json — список объектов
+    # {"angle": "...", "path": "/generated/..png"}. status: pending /
+    # done / failed. error — текст ошибки, если что-то не получилось
+    # (чтобы показать пользователю, а не просто "ничего не произошло").
+    '''CREATE TABLE IF NOT EXISTS ai_designs(
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        prompt TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        images_json TEXT NOT NULL DEFAULT '[]',
+        error TEXT,
+        created_at TEXT NOT NULL
+    )''',
 ]
 
 
@@ -610,6 +759,10 @@ def init_db():
         # Личка директора завода в Telegram — куда бот шлёт запрос «впишите
         # стоимость доставки вашей части», когда в заказе есть его товары.
         "ALTER TABLE factories ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT",
+        # Счётчик неверных попыток ввода OTP-кода — без этого код можно было
+        # подбирать (brute-force) неограниченным числом запросов к /otp/verify/,
+        # пока не истекут 5 минут жизни кода.
+        "ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
         # --- дедупликация корзины ---
         # На проде уже могли накопиться дубли cart_items на один и тот же
         # товар (из-за гонки при двойном клике "в корзину" в старой версии
@@ -1737,6 +1890,21 @@ def order_to_json(conn, row):
     }
 
 
+def ai_design_to_json(row):
+    try:
+        images = json.loads(row['images_json'] or '[]')
+    except json.JSONDecodeError:
+        images = []
+    return {
+        'id': row['id'],
+        'prompt': row['prompt'],
+        'status': row['status'],
+        'images': images,
+        'error': row['error'],
+        'created_at': row['created_at'],
+    }
+
+
 # ---------------------------------------------------------------------------
 # HTTP-обработчик
 # ---------------------------------------------------------------------------
@@ -1780,11 +1948,27 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _cors_origin(self):
+        """Возвращает Origin запроса, если он в белом списке (или локальный
+        для разработки), иначе None — тогда заголовок CORS не отправляется
+        и браузер сам заблокирует чтение ответа с чужого сайта."""
+        origin = self.headers.get('Origin', '')
+        if not origin:
+            return None
+        if origin in ALLOWED_ORIGINS:
+            return origin
+        if origin.startswith('http://localhost') or origin.startswith('http://127.0.0.1'):
+            return origin
+        return None
+
     def _send_json(self, status, payload):
         body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Access-Control-Allow-Origin', '*')
+        origin = self._cors_origin()
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Token')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
         self._write_body(body)
@@ -2031,8 +2215,20 @@ class Handler(BaseHTTPRequestHandler):
             if channel not in ('email', 'sms') or not destination:
                 raise ApiError(400, 'Некорректные данные')
 
-            # Код отправляем только на уже зарегистрированный email/телефон —
-            # это предотвращает вход/создание аккаунта кем попало.
+            # Простой троттлинг: не чаще одного нового кода в 60 секунд на
+            # один и тот же email/телефон — без этого можно было засыпать
+            # почту сотнями писем (или забить дневной лимит Brevo) одним
+            # скриптом. Не защищает от смены IP/почты, но закрывает самый
+            # дешёвый и очевидный вид спама/DoS.
+            recent = conn.execute(
+                "SELECT created_at FROM otp_codes WHERE channel=%s AND destination=%s "
+                "ORDER BY id DESC LIMIT 1", (channel, destination)
+            ).fetchone()
+            if recent:
+                elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(recent['created_at'])).total_seconds()
+                if elapsed < 60:
+                    raise ApiError(429, f'Код уже отправлен, подождите {int(60 - elapsed)} сек. перед повторной отправкой')
+
             col = 'email' if channel == 'email' else 'phone'
             existing_user = conn.execute(f'SELECT id FROM users WHERE {col}=%s', (destination,)).fetchone()
             if not existing_user:
@@ -2072,10 +2268,19 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchone()
             if not row:
                 raise ApiError(400, 'Код не найден, запросите новый')
-            if row['code'] != code:
-                raise ApiError(400, 'Неверный код подтверждения')
             if datetime.fromisoformat(row['expires_at']) < datetime.now(timezone.utc):
                 raise ApiError(400, 'Код истёк, запросите новый')
+            # Лимит попыток на один код — без этого 6-значный код можно
+            # подобрать простым перебором за отведённые ему 5 минут жизни,
+            # никак не ограничиваясь сервером. 5 попыток на код достаточно
+            # для реальной опечатки, но не оставляет практического шанса
+            # перебору (1 из 1 000 000 максимум за 5 попыток).
+            if row['attempts'] >= 5:
+                raise ApiError(429, 'Слишком много неверных попыток для этого кода, запросите новый')
+            if row['code'] != code:
+                conn.execute('UPDATE otp_codes SET attempts = attempts + 1 WHERE id=%s', (row['id'],))
+                conn.commit()
+                raise ApiError(400, 'Неверный код подтверждения')
             conn.execute('UPDATE otp_codes SET used=1 WHERE id=%s', (row['id'],))
             conn.commit()
 
@@ -2562,12 +2767,99 @@ class Handler(BaseHTTPRequestHandler):
             conn.commit()
             return {'detail': 'ok'}
 
+        # --- ИИ-Дизайн ------------------------------------------------------
+        if p == '/ai-design/' and method == 'GET':
+            user = self._current_user(conn)
+            rows = conn.execute(
+                'SELECT * FROM ai_designs WHERE user_id=%s ORDER BY id DESC LIMIT 30',
+                (user['id'],)
+            ).fetchall()
+            return [ai_design_to_json(r) for r in rows]
+
+        m = re.match(r'^/ai-design/(\d+)/$', p)
+        if m and method == 'GET':
+            user = self._current_user(conn)
+            row = conn.execute(
+                'SELECT * FROM ai_designs WHERE id=%s AND user_id=%s',
+                (m.group(1), user['id'])
+            ).fetchone()
+            if not row:
+                raise ApiError(404, 'Не найдено')
+            return ai_design_to_json(row)
+
+        if p == '/ai-design/generate/' and method == 'POST':
+            user = self._current_user(conn)
+            body = self._read_json_body()
+            prompt = (body.get('prompt') or '').strip()
+            if not prompt:
+                raise ApiError(400, 'Опишите дом текстом — что вы хотите увидеть')
+            if len(prompt) > 600:
+                raise ApiError(400, 'Слишком длинное описание (максимум 600 символов)')
+
+            today_start = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            used_today = conn.execute(
+                "SELECT COUNT(*) AS c FROM ai_designs WHERE user_id=%s AND created_at >= %s",
+                (user['id'], today_start)
+            ).fetchone()['c']
+            if used_today >= AI_DESIGN_DAILY_LIMIT:
+                raise ApiError(429, f'Дневной лимит ИИ-Дизайна исчерпан ({AI_DESIGN_DAILY_LIMIT} в сутки). Попробуйте завтра.')
+
+            created_at = now_iso()
+            cur = conn.execute(
+                "INSERT INTO ai_designs(user_id, prompt, status, created_at) VALUES(%s,%s,'pending',%s)",
+                (user['id'], prompt, created_at)
+            )
+            design_id = cur.lastrowid
+            conn.commit()
+
+            images = []
+            first_error = None
+            # Генерируем 4 картинки параллельно (разные ракурсы) — иначе
+            # по одной последовательно это легко 40-60 секунд ожидания.
+            def _one(angle_key, angle_prompt):
+                full_prompt = f'{prompt}. {angle_prompt}.'
+                png_bytes = generate_openai_image(full_prompt)
+                filename = f'{design_id}_{angle_key}.png'
+                with open(os.path.join(GENERATED_DIR, filename), 'wb') as f:
+                    f.write(png_bytes)
+                return {'angle': angle_key, 'path': f'/generated/{filename}'}
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                futures = {pool.submit(_one, k, p_): k for k, p_ in AI_DESIGN_ANGLES}
+                for fut in concurrent.futures.as_completed(futures):
+                    try:
+                        images.append(fut.result())
+                    except ApiError as e:
+                        first_error = first_error or e.detail
+                    except Exception as e:  # noqa: BLE001
+                        print(f'[ai-design] Неожиданная ошибка генерации: {type(e).__name__}: {e}')
+                        first_error = first_error or 'Не удалось сгенерировать одну из картинок'
+
+            # порядок картинок должен быть стабильным (фронт/зад/перспектива/план),
+            # as_completed отдаёт их в случайном порядке готовности
+            order = {k: i for i, (k, _) in enumerate(AI_DESIGN_ANGLES)}
+            images.sort(key=lambda im: order.get(im['angle'], 99))
+
+            if images:
+                status = 'done' if not first_error else 'partial'
+            else:
+                status = 'failed'
+            conn.execute(
+                'UPDATE ai_designs SET status=%s, images_json=%s, error=%s WHERE id=%s',
+                (status, json.dumps(images, ensure_ascii=False), first_error, design_id)
+            )
+            conn.commit()
+            row = conn.execute('SELECT * FROM ai_designs WHERE id=%s', (design_id,)).fetchone()
+            return ai_design_to_json(row)
+
         # --- панель администратора (веб-дашборд на /admin/) ----------------
         if p.startswith('/admin/'):
             if p == '/admin/login/' and method == 'POST':
+                _check_admin_login_throttle()
                 body = self._read_json_body()
                 password = body.get('password') or ''
-                if password != ADMIN_PANEL_PASSWORD:
+                if not secrets.compare_digest(password, ADMIN_PANEL_PASSWORD):
+                    _record_admin_login_failure()
                     raise ApiError(401, 'Неверный пароль')
                 token = secrets.token_hex(24)
                 conn.execute('INSERT INTO admin_sessions(token, created_at) VALUES (%s,%s)', (token, now_iso()))
@@ -2942,6 +3234,7 @@ def _stop_telegram_bot_subprocess():
 
 def main():
     init_db()
+    os.makedirs(GENERATED_DIR, exist_ok=True)
     # По умолчанию у стандартного http.server очередь на подключение всего 5
     # ожидающих соединений — при резком всплеске (много людей одновременно
     # открыли сайт) новые подключения могли обрываться ("Connection reset")
@@ -2956,6 +3249,13 @@ def main():
     print(f'Сайт:   http://127.0.0.1:{PORT}/')
     print(f'API:    http://127.0.0.1:{PORT}/api/health/')
     print(f'База данных: PostgreSQL ({"подключено" if DATABASE_URL else "DATABASE_URL не задан!"})')
+    if ADMIN_PANEL_PASSWORD == 'admin123':
+        print('!' * 60)
+        print('ВНИМАНИЕ: пароль админки НЕ ИЗМЕНЁН (всё ещё admin123)!')
+        print('Любой, кто это увидит или угадает — получит полный доступ')
+        print('к заказам, клиентам И СМОЖЕТ ПОЛНОСТЬЮ СТЕРЕТЬ БАЗУ ДАННЫХ.')
+        print('Задайте ADMIN_PANEL_PASSWORD в Variables на Railway СЕЙЧАС ЖЕ.')
+        print('!' * 60)
     if BREVO_API_KEY and EMAIL_HOST_USER:
         _masked = EMAIL_HOST_USER[:2] + '***' + EMAIL_HOST_USER[EMAIL_HOST_USER.find('@'):]
         print(f'Email OTP: настроен, отправитель {_masked} через Brevo API (HTTP, не SMTP). '

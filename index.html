@@ -44,6 +44,22 @@
   html[data-theme="dark"] body{ background:#111116; }
   html[data-theme="dark"] .app-wrap{ background:var(--bg); }
   *{box-sizing:border-box;}
+  /* Убираем стандартную синюю/серую вспышку Android Chrome при тапе по
+     кнопкам/ссылкам/карточкам — она есть по умолчанию у ЛЮБОГО кликабельного
+     элемента, если явно не отключить. outline тоже убираем при тапе (не при
+     навигации с клавиатуры — см. :focus-visible ниже, это важно для
+     доступности, чтобы не сломать навигацию Tab-ом для людей с клавиатурой).
+     button{-webkit-tap-highlight-color} тоже нужен отдельно — в Safari/Chrome
+     кнопки иногда не наследуют это свойство от * с той же силой. */
+  *{ -webkit-tap-highlight-color:transparent; }
+  button, a, .nav-item, .style-card, [onclick]{
+    -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none;
+  }
+  button:focus, a:focus, [onclick]:focus{ outline:none; }
+  button:focus-visible, a:focus-visible, [onclick]:focus-visible{
+    outline:2px solid var(--blue,#5b9dff); outline-offset:2px;
+  }
   html,body{margin:0;padding:0;height:100%;}
   body{
     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
@@ -876,21 +892,29 @@
     <div id="reviewsList"></div>
   </div>
 
-  <!-- ================= AI DESIGN (kept in markup, backend supports it, hidden behind "coming soon" for this MVP) ================= -->
+  <!-- ================= AI DESIGN ================= -->
   <div class="page" data-page="ai-design">
-    <div id="aiStepView">
-      <div class="topbar"><h1 data-i18n="ai_design_soon">ИИ-Дизайн (скоро)</h1></div>
-      <div class="step-label"><div class="step-badge">1</div>Загрузите фото комнаты</div>
-      <div class="upload-box" id="uploadBox">
-        <div id="uploadPlaceholder">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="1.6"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="13.5" r="3.5"/></svg>
-          <p style="margin-top:10px;">Раздел скоро будет доступен</p>
-        </div>
-      </div>
-      <div class="step-label"><div class="step-badge">2</div>Выберите стиль</div>
-      <div class="styles-row" id="aiStylesRow"></div>
+    <div class="topbar"><h1 data-i18n="nav_ai">ИИ-Дизайн</h1></div>
+    <p style="padding:0 18px 14px;color:var(--text-2);font-size:13px;line-height:1.5;" data-i18n="ai_design_intro">
+      Опишите словами дом, который хотите — ИИ сгенерирует несколько фото-вариантов фасада с разных
+      сторон и эскиз планировки. Это иллюстрация «как может выглядеть», а не готовый чертёж для стройки.
+    </p>
+    <div style="padding:0 18px;">
+      <textarea id="aiDesignPrompt" rows="3" maxlength="600"
+        data-i18n-placeholder="ai_design_placeholder"
+        placeholder="Например: одноэтажный кирпичный дом 120 м², скатная крыша, большие окна, светлый фасад"
+        style="width:100%;border:1px solid var(--border);border-radius:12px;padding:12px;font:inherit;
+               resize:vertical;background:var(--card);color:var(--text);box-sizing:border-box;"></textarea>
+      <button class="primary-btn" style="width:100%;margin:10px 0 0;" id="aiDesignGenerateBtn"
+        onclick="submitAiDesign()" data-i18n="ai_design_generate">Сгенерировать</button>
     </div>
+    <div id="aiDesignResult" style="padding:14px 18px 0;"></div>
+    <div style="padding:22px 18px 8px;">
+      <h3 style="margin:0;font-size:15px;" data-i18n="ai_design_history">История генераций</h3>
+    </div>
+    <div id="aiDesignHistory" style="padding:0 18px 24px;"></div>
   </div>
+
 
   <!-- ================= RESULT (sub-page under ai-design, reserved for future use) ================= -->
   <div class="page" data-page="result">
@@ -1225,6 +1249,9 @@ const I18N = {
     city_soon_toast:'Bu hududda hozircha ishlamaymiz — tez orada qo\'shamiz',
     search_catalog:'Qidiruv va katalog', about_product:'Mahsulot haqida', reviews:'Sharhlar',
     ai_design_soon:'AI-Dizayn (tez orada)', design_result:'Dizayn natijasi',
+    ai_design_intro:'Uyni so‘z bilan ta’riflang — ИИ bir necha fasad rakursi va qavat rejasi eskizini yaratadi. Bu qanday ko‘rinishi mumkinligi haqidagi tasvir, qurilish uchun chizma emas.',
+    ai_design_placeholder:'Masalan: bir qavatli g‘isht uy 120 m², qiyshiq tom, katta derazalar, och rangli fasad',
+    ai_design_generate:'Yaratish', ai_design_history:'Yaratishlar tarixi',
     builders_market:'Quruvchilar birjasi', builders_request:'Brigada uchun ariza',
     profile_title:'Profil', login_email:'Email orqali kirish', login_phone:'Telefon orqali kirish',
     confirm_title:'Tasdiqlash',
@@ -1292,6 +1319,9 @@ const I18N = {
     city_soon_toast:'В этом городе пока не работаем — скоро подключим',
     search_catalog:'Поиск и каталог', about_product:'О товаре', reviews:'Отзывы',
     ai_design_soon:'ИИ-Дизайн (скоро)', design_result:'Результат дизайна',
+    ai_design_intro:'Опишите словами дом, который хотите — ИИ сгенерирует несколько фото-вариантов фасада с разных сторон и эскиз планировки. Это иллюстрация «как может выглядеть», а не готовый чертёж для стройки.',
+    ai_design_placeholder:'Например: одноэтажный кирпичный дом 120 м², скатная крыша, большие окна, светлый фасад',
+    ai_design_generate:'Сгенерировать', ai_design_history:'История генераций',
     builders_market:'Биржа строителей', builders_request:'Заявка на бригаду',
     profile_title:'Профиль', login_email:'Вход по email', login_phone:'Вход по телефону',
     confirm_title:'Подтверждение',
@@ -1924,7 +1954,6 @@ document.addEventListener('click', function(e){
 
 /* ============ NAV ============ */
 const COMING_SOON_TABS = {
-  'ai-design': { icon: 'sparkle', title: 'ИИ-Дизайн', text: 'На старте MVP мы фокусируемся на магазине и доставке по Ташкенту и области. Бэкенд для ИИ-расчёта уже готов (см. /api/ai-design/) — включим на фронтенде следующим шагом.' },
   'builders': { icon: 'builders', title: 'Биржа строителей', text: 'На старте мы сосредоточены на магазине и доставке. Бэкенд для бригад уже готов (см. /api/builders/) — включим на фронтенде, когда будем готовы расширяться.' }
 };
 function comingSoonIcon(type){
@@ -1954,7 +1983,7 @@ function showComingSoon(tab){
 function goTab(tab){
   stopCheckoutPolling();
   if(COMING_SOON_TABS[tab]){ showComingSoon(tab); return; }
-  if((tab==='orders') && !requireLogin(()=>goTab(tab))) return;
+  if((tab==='orders' || tab==='ai-design') && !requireLogin(()=>goTab(tab))) return;
   if(tab!=='notifications'){ state.previousMainTab = state.currentTab; }
   showPage(`.page[data-page="${tab}"]`);
   const mainTabs = ['home','catalog','cart','ai-design','builders','orders','profile'];
@@ -1976,6 +2005,7 @@ function goTab(tab){
   if(tab==='support'){ document.getElementById('supportHome').style.display='block'; document.getElementById('chatView').style.display='none'; loadFAQ(); }
   if(tab==='cart') renderCart();
   if(tab==='reviews') loadReviews();
+  if(tab==='ai-design') loadAiDesignHistory();
 }
 // Пока открыт раздел "Мои заказы" — периодически подтягиваем статусы, чтобы
 // подтверждение оплаты администратором через Telegram-бота появлялось на
@@ -2094,14 +2124,86 @@ async function loadReviews(){
     list.innerHTML = reviews.length ? reviews.map(r=>`
       <div class="review-card">
         <div class="review-top">
-          <div class="review-avatar">${r.author_name.split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
-          <div><p class="review-name">${r.author_name}</p><p class="review-date">${new Date(r.created_at).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})}</p></div>
+          <div class="review-avatar">${escapeHtml(r.author_name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</div>
+          <div><p class="review-name">${escapeHtml(r.author_name)}</p><p class="review-date">${new Date(r.created_at).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})}</p></div>
           <span class="review-stars">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span>
         </div>
-        <p class="review-text">${r.text}</p>
+        <p class="review-text">${escapeHtml(r.text)}</p>
       </div>`).join('') : `<div class="empty-state">Пока нет отзывов на этот товар</div>`;
   }catch(err){ list.innerHTML = `<div class="empty-state">Не удалось загрузить отзывы</div>`; }
 }
+
+/* ============ AI DESIGN ============ */
+const AI_DESIGN_ANGLE_LABELS = {
+  front: 'Фасад спереди', side: 'Вид сбоку', perspective: 'Ракурс 3/4', plan: 'Эскиз плана'
+};
+let aiDesignBusy = false;
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+function renderAiDesignImages(images){
+  if(!images || !images.length) return '';
+  return `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px;">
+    ${images.map(im=>`
+      <div style="border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--bg);">
+        <img src="${im.path}" style="width:100%;display:block;aspect-ratio:1;object-fit:cover;" loading="lazy" alt="${escapeHtml(AI_DESIGN_ANGLE_LABELS[im.angle]||im.angle)}">
+        <div style="padding:6px 8px;font-size:11.5px;color:var(--text-2);text-align:center;">${escapeHtml(AI_DESIGN_ANGLE_LABELS[im.angle]||im.angle)}</div>
+      </div>`).join('')}
+  </div>`;
+}
+function renderAiDesignResult(design){
+  const box = document.getElementById('aiDesignResult');
+  let note = '';
+  if(design.status==='partial') note = `<p style="color:#c77a1a;font-size:12.5px;margin:0 0 4px;">Не все картинки удалось сгенерировать: ${escapeHtml(design.error||'')}</p>`;
+  if(design.status==='failed') note = `<p style="color:#d33;font-size:12.5px;margin:0 0 4px;">Не получилось сгенерировать: ${escapeHtml(design.error||'ошибка сервиса')}</p>`;
+  box.innerHTML = note + renderAiDesignImages(design.images);
+}
+async function submitAiDesign(){
+  if(aiDesignBusy) return;
+  const ta = document.getElementById('aiDesignPrompt');
+  const prompt = ta.value.trim();
+  if(!prompt){ showToast('Опишите дом текстом — что вы хотите увидеть'); return; }
+  aiDesignBusy = true;
+  const btn = document.getElementById('aiDesignGenerateBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Генерируем… обычно 20-40 секунд';
+  document.getElementById('aiDesignResult').innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
+  try{
+    const design = await api('/ai-design/generate/', {method:'POST', body:{prompt}});
+    renderAiDesignResult(design);
+    loadAiDesignHistory();
+  }catch(err){
+    document.getElementById('aiDesignResult').innerHTML = '';
+    showError(err);
+  }finally{
+    aiDesignBusy = false;
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+async function loadAiDesignHistory(){
+  const box = document.getElementById('aiDesignHistory');
+  box.innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
+  try{
+    const list = await api('/ai-design/');
+    if(!list.length){
+      box.innerHTML = `<div class="empty-state">Пока нет ни одной генерации</div>`;
+      return;
+    }
+    box.innerHTML = list.map(d=>`
+      <div style="padding:14px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:600;margin-bottom:2px;">${escapeHtml(d.prompt)}</div>
+        <div style="font-size:11px;color:var(--text-2);">${new Date(d.created_at).toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</div>
+        ${renderAiDesignImages(d.images)}
+      </div>`).join('');
+  }catch(err){
+    box.innerHTML = `<div class="empty-state">Не удалось загрузить историю</div>`;
+  }
+}
+
 function changeQty(delta){
   state.productQty = Math.max(1, Math.min(99, state.productQty + delta));
   document.getElementById('qtyValue').textContent = state.productQty;
