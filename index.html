@@ -163,11 +163,23 @@
     background:linear-gradient(180deg, rgba(30,20,70,0.15) 0%, rgba(20,14,54,0.55) 55%, rgba(15,10,42,0.82) 100%);
   }
   .hero-content{ position:relative; z-index:2; padding:26px 22px 24px; }
+  .hero-tag{
+    display:inline-block;align-self:flex-start;background:rgba(255,255,255,0.16);color:#fff;
+    font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    padding:5px 12px;border-radius:20px;margin-bottom:12px;backdrop-filter:blur(4px);
+    border:1px solid rgba(255,255,255,0.25);
+  }
   .hero h2{font-size:22px;line-height:1.35;margin:0 0 16px;font-weight:800;max-width:80%;text-shadow:0 2px 10px rgba(0,0,0,0.25);}
+  .hero-actions{display:flex;flex-wrap:wrap;gap:10px;}
   .hero-btn{
-    background:#fff;color:var(--primary);border:none;padding:11px 18px;border-radius:12px;
+    background:var(--accent);color:#fff;border:none;padding:11px 18px;border-radius:12px;
     font-weight:700;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
-    box-shadow:0 6px 18px rgba(0,0,0,0.18);
+    box-shadow:0 6px 18px rgba(0,0,0,0.25);
+  }
+  .hero-btn-ghost{
+    background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.35);
+    padding:11px 18px;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;backdrop-filter:blur(4px);
   }
   .utp-strip{
     display:flex;justify-content:space-between;gap:6px;margin:0 18px 22px;padding:12px 14px;
@@ -175,6 +187,24 @@
   }
   .utp-strip div{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;text-align:center;}
   .utp-strip span{font-size:10.5px;font-weight:700;color:var(--text-2);line-height:1.25;}
+
+  .quick-cats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:0 18px 22px;}
+  .quick-cat-card{
+    background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;
+    display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left;
+  }
+  .quick-cat-card .qc-icon{
+    width:38px;height:38px;border-radius:10px;background:var(--primary-light);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;font-size:19px;
+  }
+  .quick-cat-card.qc-all .qc-icon{ background:var(--accent); color:#fff; }
+  .quick-cat-card b{font-size:13.5px;font-weight:700;}
+  .quick-cat-card .qc-sub{font-size:11px;color:var(--text-2);}
+  .quick-cat-card .qc-arrow{margin-left:auto;color:var(--text-3);}
+  .quick-cat-card .qc-top{display:flex;align-items:center;gap:8px;}
+  @media (min-width:640px){
+    .quick-cats{grid-template-columns:repeat(4,1fr);}
+  }
 
   .store-stats{
     display:flex;gap:10px;margin:0 18px 22px;
@@ -192,17 +222,44 @@
 
   .featured-row{display:flex;gap:12px;overflow-x:auto;padding:0 18px 4px;scrollbar-width:none;}
   .featured-row::-webkit-scrollbar{display:none;}
-  .featured-row .product-card{flex-shrink:0;width:148px;}
+  .featured-row .product-card{flex-shrink:0;width:160px;}
   .featured-row .product-info .pname{min-height:auto;}
+  .fp-badge{
+    position:absolute;top:8px;left:8px;background:var(--accent);color:#fff;font-size:9.5px;font-weight:700;
+    padding:3px 8px;border-radius:8px;letter-spacing:.02em;text-transform:uppercase;
+  }
+  .fp-wish{
+    position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:50%;border:none;
+    background:rgba(255,255,255,0.88);color:#b8b8c4;display:flex;align-items:center;justify-content:center;
+    font-size:13px;cursor:pointer;line-height:1;
+  }
+  html[data-theme="dark"] .fp-wish{ background:rgba(20,20,28,0.78); color:#666674; }
+  .fp-wish.active{ color:#ef4444; }
+  .fp-meta{font-size:11px;color:var(--text-2);margin-top:2px;}
+  .add-to-cart-btn{
+    width:100%;margin-top:8px;background:var(--accent);color:#fff;border:none;border-radius:10px;
+    padding:8px 10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;
+    justify-content:center;gap:6px;
+  }
+  .add-to-cart-btn.added{ background:#16a34a; }
 
   .advantages-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 18px 8px;}
   .advantage-card{
     background:var(--card);border:1px solid var(--border);border-radius:14px;
-    padding:14px;display:flex;flex-direction:column;gap:5px;
+    padding:14px;display:flex;flex-direction:row;align-items:flex-start;gap:12px;
   }
-  .advantage-card .adv-icon{font-size:20px;}
+  .advantage-card .adv-icon{
+    width:34px;height:34px;border-radius:50%;background:var(--primary-light);color:var(--primary);
+    display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;
+  }
+  .advantage-card:nth-child(odd) .adv-icon{ background:var(--primary-light); color:var(--primary); }
+  .advantage-card:nth-child(even) .adv-icon{
+    background:#fdecdf; color:var(--accent);
+  }
+  html[data-theme="dark"] .advantage-card:nth-child(even) .adv-icon{ background:#3a2a1f; }
   .advantage-card b{font-size:13px;font-weight:700;}
   .advantage-card span{font-size:11.5px;color:var(--text-2);line-height:1.4;}
+  .advantage-card > div{display:flex;flex-direction:column;gap:4px;}
 
   /* На телефоне (узкий экран) пункты нижнего меню "ИИ-Дизайн" и "Строители"
      скрыты — остаются только на десктопе, где .bottom-nav превращается в
@@ -239,13 +296,23 @@
   .style-card.selected .style-thumb{border-color:var(--primary);}
   .style-card span{font-size:12px;color:var(--text-2);font-weight:600;}
 
-  .steps-list{padding:0 18px;margin:0;list-style:none;}
-  .step-item{display:flex;gap:12px;padding:10px 0;align-items:flex-start;}
-  .step-num{
-    width:24px;height:24px;border-radius:50%;background:var(--primary-light);color:var(--primary);
-    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;
+  .steps-list{
+    padding:0 18px;margin:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:10px;
   }
-  .step-item p{margin:2px 0 0;font-size:14px;color:var(--text);line-height:1.4;}
+  .step-item{
+    display:flex;flex-direction:column;gap:8px;padding:14px;align-items:flex-start;
+    background:var(--card);border:1px solid var(--border);border-radius:14px;position:relative;
+  }
+  .step-item .step-icon{font-size:20px;}
+  .step-num{
+    width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;
+    position:absolute;top:10px;right:10px;
+  }
+  .step-item p{margin:0;font-size:12.5px;color:var(--text);line-height:1.4;}
+  @media (min-width:640px){
+    .steps-list{grid-template-columns:repeat(4,1fr);}
+  }
 
   /* Bottom nav - truly fixed, never scrolls */
   .bottom-nav{
@@ -828,8 +895,12 @@
       <img class="hero-photo" src="/media/hero.jpg" alt="Уютный интерьер после ремонта">
       <div class="hero-scrim"></div>
       <div class="hero-content">
+        <span class="hero-tag" data-i18n="hero_tag">Строительные материалы</span>
         <h2 data-i18n="hero_title">Точный расчёт материалов без переплат — от 29 000 сум</h2>
-        <button class="hero-btn" data-i18n="hero_btn" onclick="goTab('ai-design')">Рассчитать →</button>
+        <div class="hero-actions">
+          <button class="hero-btn" data-i18n="hero_btn" onclick="goTab('ai-design')">Рассчитать →</button>
+          <button class="hero-btn-ghost" data-i18n="hero_btn2" onclick="document.getElementById('howItWorksSection').scrollIntoView({behavior:'smooth'})">Как это работает</button>
+        </div>
       </div>
     </div>
     <div class="utp-strip">
@@ -838,15 +909,17 @@
       <div>📐 <span data-i18n="utp_calc">Считаем точно — без лишнего</span></div>
     </div>
 
+    <div class="quick-cats" id="quickCatsRow"></div>
+
     <div class="section-head"><h3 data-i18n="popular_styles">Популярные стили</h3></div>
     <div class="styles-row" id="homeStylesRow"></div>
 
-    <div class="section-head"><h3 data-i18n="how_it_works">Как это работает</h3></div>
+    <div class="section-head" id="howItWorksSection"><h3 data-i18n="how_it_works">Как это работает</h3></div>
     <ol class="steps-list">
-      <li class="step-item"><div class="step-num">1</div><p data-i18n="step1">Выберите нужные материалы в каталоге</p></li>
-      <li class="step-item"><div class="step-num">2</div><p data-i18n="step2">Добавьте в корзину и оформите заказ</p></li>
-      <li class="step-item"><div class="step-num">3</div><p data-i18n="step3">Мы привезём всё по Ташкенту и области</p></li>
-      <li class="step-item"><div class="step-num">4</div><p data-i18n="step4">Следите за статусом в разделе «Мои заказы»</p></li>
+      <li class="step-item"><div class="step-num">1</div><span class="step-icon">🛒</span><p data-i18n="step1">Выберите нужные материалы в каталоге</p></li>
+      <li class="step-item"><div class="step-num">2</div><span class="step-icon">✅</span><p data-i18n="step2">Добавьте в корзину и оформите заказ</p></li>
+      <li class="step-item"><div class="step-num">3</div><span class="step-icon">🚚</span><p data-i18n="step3">Мы привезём всё по Ташкенту и области</p></li>
+      <li class="step-item"><div class="step-num">4</div><span class="step-icon">📦</span><p data-i18n="step4">Следите за статусом в разделе «Мои заказы»</p></li>
     </ol>
 
     <div class="section-head"><h3 data-i18n="stats_title">Магазин в цифрах</h3></div>
@@ -864,10 +937,10 @@
 
     <div class="section-head"><h3 data-i18n="why_us">Почему выбирают нас</h3></div>
     <div class="advantages-grid">
-      <div class="advantage-card"><span class="adv-icon">🏭</span><b data-i18n="adv1_title">Напрямую с заводов</b><span data-i18n="adv1_text">Без лишних посредников и наценок</span></div>
-      <div class="advantage-card"><span class="adv-icon">✅</span><b data-i18n="adv2_title">Проверка перед оплатой</b><span data-i18n="adv2_text">Платите только после подтверждения заказа</span></div>
-      <div class="advantage-card"><span class="adv-icon">🤖</span><b data-i18n="adv3_title">ИИ-расчёт материалов</b><span data-i18n="adv3_text">Не переплачиваете за лишние материалы</span></div>
-      <div class="advantage-card"><span class="adv-icon">📞</span><b data-i18n="adv4_title">Поддержка каждый день</b><span data-i18n="adv4_text">Ответим на вопросы по заказу и доставке</span></div>
+      <div class="advantage-card"><span class="adv-icon">🏭</span><div><b data-i18n="adv1_title">Напрямую с заводов</b><span data-i18n="adv1_text">Без лишних посредников и наценок</span></div></div>
+      <div class="advantage-card"><span class="adv-icon">✅</span><div><b data-i18n="adv2_title">Проверка перед оплатой</b><span data-i18n="adv2_text">Платите только после подтверждения заказа</span></div></div>
+      <div class="advantage-card"><span class="adv-icon">🤖</span><div><b data-i18n="adv3_title">ИИ-расчёт материалов</b><span data-i18n="adv3_text">Не переплачиваете за лишние материалы</span></div></div>
+      <div class="advantage-card"><span class="adv-icon">📞</span><div><b data-i18n="adv4_title">Поддержка каждый день</b><span data-i18n="adv4_text">Ответим на вопросы по заказу и доставке</span></div></div>
     </div>
   </div>
 
@@ -1307,11 +1380,13 @@ const I18N = {
     cart_title:'Savat', checkout_title:'Buyurtma rasmiylashtirish', orders_title:'Buyurtmalarim',
     notifications_title:'Bildirishnomalar', support_title:'Yordam',
     hero_title:'Ortiqcha to\'lovsiz aniq material hisob-kitobi — 29 000 so\'mdan',
-    hero_btn:'Hisoblash →',
+    hero_btn:'Hisoblash →', hero_tag:'Qurilish materiallari', hero_btn2:'Bu qanday ishlaydi',
+    qc_subtitle:'Materiallar katalogi', qc_all_title:'Barcha mahsulotlar', qc_all_sub:'Katalogga o\'tish',
     utp_price:'Ulgurji narxlarga yaqin', utp_delivery:'Toshkent va viloyat bo\'ylab yetkazib berish',
     utp_calc:'Aniq hisoblaymiz — ortiqchasiz',
     stat_sold:'Sotilgan mahsulot', stat_products:'Katalogda', stat_clients:'Mijozlar',
     stats_title:"Do'kon raqamlarda", featured_products:'Mashhur mahsulotlar', see_all:'Barchasi',
+    featured_badge:'Tavsiya', add_to_cart:"Savatga qo'shish", added_to_cart:"Qo'shildi",
     why_us:'Nega bizni tanlashadi',
     adv1_title:"To'g'ridan-to'g'ri zavoddan", adv1_text:"Ortiqcha vositachi va ustamalarsiz",
     adv2_title:"To'lovdan oldin tekshiruv", adv2_text:"Buyurtma tasdiqlangandan keyin to'lov",
@@ -1384,11 +1459,13 @@ const I18N = {
     cart_title:'Корзина', checkout_title:'Оформить заказ', orders_title:'Мои заказы',
     notifications_title:'Уведомления', support_title:'Поддержка',
     hero_title:'Точный расчёт материалов без переплат — от 29 000 сум',
-    hero_btn:'Рассчитать →',
+    hero_btn:'Рассчитать →', hero_tag:'Строительные материалы', hero_btn2:'Как это работает',
+    qc_subtitle:'Каталог материалов', qc_all_title:'Все товары', qc_all_sub:'Перейти в каталог',
     utp_price:'Цены ближе к оптовым', utp_delivery:'Доставка по Ташкенту и области',
     utp_calc:'Считаем точно — без лишнего',
     stat_sold:'Товаров продано', stat_products:'В каталоге', stat_clients:'Клиентов',
     stats_title:'Магазин в цифрах', featured_products:'Популярные товары', see_all:'Все товары',
+    featured_badge:'Рекомендуем', add_to_cart:'В корзину', added_to_cart:'Добавлено',
     why_us:'Почему выбирают нас',
     adv1_title:'Напрямую с заводов', adv1_text:'Без лишних посредников и наценок',
     adv2_title:'Проверка перед оплатой', adv2_text:'Платите только после подтверждения заказа',
@@ -1501,6 +1578,7 @@ function setLang(lang){
     const p = productById(state.currentProductId); if(p) renderProductPage(p);
   }
   renderFeaturedProducts();
+  renderHomeCategories();
 }
 
 /* ============ STATE ============ */
@@ -2111,7 +2189,40 @@ async function loadCategories(){
   try{
     state.categories = await api('/categories/', {auth:false});
     renderCatalogChips();
+    renderHomeCategories();
   }catch(err){ showError(err); }
+}
+/* Быстрые карточки категорий на главной. Иконка подбирается по ключевым
+   словам в slug/названии категории — у бэкенда нет отдельного поля для
+   иконки, так что это просто приятная деталь, а не точный справочник. */
+function categoryIcon(c){
+  const s = (c.slug || '' ) + ' ' + (c.name || '');
+  const key = s.toLowerCase();
+  if(key.includes('kirpich') || key.includes('g\'isht') || key.includes('gisht') || key.includes('кирпич')) return '🧱';
+  if(key.includes('gazoblok') || key.includes('blok') || key.includes('блок')) return '⬜';
+  if(key.includes('cement') || key.includes('sement') || key.includes('цемент')) return '🏗️';
+  if(key.includes('metal') || key.includes('металл') || key.includes('armatura') || key.includes('арматур')) return '🔩';
+  if(key.includes('krask') || key.includes('bo\'yoq') || key.includes('boyoq') || key.includes('краск')) return '🎨';
+  if(key.includes('trub') || key.includes('quvur')) return '🚿';
+  return '📦';
+}
+function renderHomeCategories(){
+  const el = document.getElementById('quickCatsRow');
+  if(!el) return;
+  if(!state.categories || !state.categories.length){ el.innerHTML = ''; return; }
+  const cards = state.categories.map(c => `
+    <div class="quick-cat-card" onclick="goTab('catalog'); setCategory('${c.slug}')">
+      <div class="qc-top"><div class="qc-icon">${categoryIcon(c)}</div><span class="qc-arrow">→</span></div>
+      <div><b>${catName(c)}</b><div class="qc-sub" data-i18n="qc_subtitle">Каталог материалов</div></div>
+    </div>
+  `).join('');
+  const allCard = `
+    <div class="quick-cat-card qc-all" onclick="goTab('catalog'); setCategory('all')">
+      <div class="qc-top"><div class="qc-icon">🗂️</div><span class="qc-arrow">→</span></div>
+      <div><b data-i18n="qc_all_title">Все товары</b><div class="qc-sub" data-i18n="qc_all_sub">Перейти в каталог</div></div>
+    </div>
+  `;
+  el.innerHTML = cards + allCard;
 }
 function renderCatalogChips(){
   const all = [{id:'all', name:'Все', name_uz:'Barchasi', slug:'all'}, ...state.categories];
@@ -2150,7 +2261,7 @@ function renderCatalog(){
         <div class="rating-row">⭐ ${p.rating}</div>
         <div class="price-row" style="margin-top:8px;">
           <span class="price">${Number(p.price).toLocaleString('ru-RU')} сум/${p.unit}</span>
-          <button class="cart-fab" id="cart-${p.id}" onclick="handleAddToCart(${p.id}, event)">
+          <button class="cart-fab" data-addcart="${p.id}" onclick="handleAddToCart(${p.id}, event)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>
           </button>
         </div>
@@ -2160,21 +2271,42 @@ function renderCatalog(){
 }
 function productById(id){ return state.products.find(p=>p.id===id); }
 
-/* Небольшая витрина товаров на главной странице — просто первые товары
-   из каталога с фото, названием и ценой, кликабельные как в каталоге. */
+/* Небольшая витрина товаров на главной странице — с бейджем, кнопкой
+   «в избранное» (хранится в localStorage, без бэкенда) и подписью
+   количество/город, как в каталоге, но покомпактнее. */
+function getWishlist(){
+  try{ return JSON.parse(localStorage.getItem('wishlist') || '[]'); }catch(e){ return []; }
+}
+function isWished(id){ return getWishlist().includes(id); }
+function toggleWish(id, e){
+  e.stopPropagation();
+  let list = getWishlist();
+  list = list.includes(id) ? list.filter(x=>x!==id) : [...list, id];
+  localStorage.setItem('wishlist', JSON.stringify(list));
+  document.querySelectorAll(`[data-wish="${id}"]`).forEach(btn=>btn.classList.toggle('active', list.includes(id)));
+}
 function renderFeaturedProducts(){
   const el = document.getElementById('featuredProductsRow');
   if(!el) return;
   if(!state.products || !state.products.length){ el.innerHTML = ''; return; }
   const items = state.products.slice(0, 10);
   el.innerHTML = items.map(p=>`
-    <div class="product-card" onclick="openProductPage(${p.id})">
-      <div class="swatch" style="aspect-ratio:${productAspect(p)};">${productVisual(p)}</div>
+    <div class="product-card featured-card" onclick="openProductPage(${p.id})">
+      <div class="swatch" style="aspect-ratio:${productAspect(p)};">
+        ${productVisual(p)}
+        <span class="fp-badge" data-i18n="featured_badge">Рекомендуем</span>
+        <button class="fp-wish ${isWished(p.id)?'active':''}" data-wish="${p.id}" onclick="toggleWish(${p.id}, event)">♥</button>
+      </div>
       <div class="product-info">
         <p class="pname">${pname(p)}</p>
+        <div class="fp-meta">1 ${p.unit} · ${state.city}</div>
         <div class="price-row" style="margin-top:6px;">
-          <span class="price">${Number(p.price).toLocaleString('ru-RU')} сум/${p.unit}</span>
+          <span class="price">${Number(p.price).toLocaleString('ru-RU')} сум</span>
         </div>
+        <button class="add-to-cart-btn" data-addcart="${p.id}" onclick="handleAddToCart(${p.id}, event)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>
+          <span data-i18n="add_to_cart">В корзину</span>
+        </button>
       </div>
     </div>
   `).join('');
@@ -2360,12 +2492,18 @@ function setCartMode(mode){
 async function addToCartQty(productId, qty, isGridButton){
   const onSuccess = () => {
     if(isGridButton){
-      const btn = document.getElementById('cart-'+productId);
-      if(btn){
+      // Несколько карточек одного товара могут быть на странице одновременно
+      // (витрина на главной + сетка каталога) — обновляем их все, а не только
+      // первую попавшуюся по id.
+      document.querySelectorAll(`[data-addcart="${productId}"]`).forEach(btn=>{
+        const isLabeled = btn.classList.contains('add-to-cart-btn');
+        if(!btn.dataset.origHtml) btn.dataset.origHtml = btn.innerHTML;
         btn.classList.add('added');
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>`;
-        setTimeout(()=>{ btn.classList.remove('added'); btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/></svg>`; }, 1500);
-      }
+        btn.innerHTML = isLabeled
+          ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> ${t('added_to_cart')}`
+          : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>`;
+        setTimeout(()=>{ btn.classList.remove('added'); btn.innerHTML = btn.dataset.origHtml; }, 1500);
+      });
       const p = productById(productId);
       showToast((p ? pname(p) : 'Товар') + ' добавлен в корзину');
     }
