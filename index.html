@@ -465,11 +465,24 @@
   .cal-day:hover:not(.selected){background:var(--primary-light);}
   .form-field{margin:0 18px 12px;}
   .form-field label{display:block;font-size:12.5px;color:var(--text-2);margin-bottom:5px;font-weight:600;}
-  .form-field input, .form-field textarea{
+  .form-field input, .form-field textarea, .form-field select{
     width:100%;border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:14px;
-    font-family:inherit;background:var(--card);color:var(--text);outline:none;
+    font-family:inherit;background:var(--card);color:var(--text);outline:none;box-sizing:border-box;
+    -webkit-appearance:none;appearance:none;
   }
-  .form-field input:focus, .form-field textarea:focus{border-color:var(--primary);}
+  .form-field input:focus, .form-field textarea:focus, .form-field select:focus{border-color:var(--primary);}
+  .form-field.select-wrap{position:relative;}
+  .form-field.select-wrap::after{
+    content:'';position:absolute;right:16px;bottom:17px;width:8px;height:8px;pointer-events:none;
+    border-right:2px solid var(--text-2);border-bottom:2px solid var(--text-2);transform:rotate(45deg);
+  }
+  .upload-box.has-photo{border-style:solid;padding:0;}
+  .upload-box .upload-remove{
+    position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.55);
+    color:#fff;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;z-index:2;
+  }
+  .upload-box .upload-hint{display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 16px;}
+  .upload-box .upload-hint svg{opacity:0.6;}
 
   /* Profile */
   .profile-head{display:flex;align-items:center;gap:14px;padding:6px 18px 20px;}
@@ -1022,6 +1035,34 @@
       Опишите словами дом, который хотите — ИИ сгенерирует несколько фото-вариантов фасада с разных
       сторон и эскиз планировки. Это иллюстрация «как может выглядеть», а не готовый чертёж для стройки.
     </p>
+    <div class="step-label"><span class="step-badge">1</span><span data-i18n="ai_design_step_photo">Фото участка или дома (необязательно)</span></div>
+    <input type="file" id="aiDesignPhotoInput" accept="image/*" style="display:none;" onchange="handleAiDesignPhotoChange(event)">
+    <div class="upload-box" id="aiDesignUploadBox" onclick="document.getElementById('aiDesignPhotoInput').click()">
+      <div class="upload-hint" id="aiDesignUploadHint">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5M7 9l5-5 5 5M12 4v13"/></svg>
+        <p data-i18n="ai_design_upload_hint">Нажмите, чтобы загрузить фото — ИИ учтёт его при генерации</p>
+      </div>
+    </div>
+
+    <div class="step-label"><span class="step-badge">2</span><span data-i18n="ai_design_step_params">Параметры дома</span></div>
+    <div class="form-field">
+      <label data-i18n="ai_design_size_label">Площадь дома, м²</label>
+      <input type="number" id="aiDesignSize" inputmode="decimal" min="1" max="10000" placeholder="120">
+    </div>
+    <div class="form-field select-wrap">
+      <label data-i18n="ai_design_style_label">Стиль</label>
+      <select id="aiDesignStyle">
+        <option value="" data-i18n="ai_design_style_any">Не важно / опишу словами</option>
+        <option value="scandi" data-i18n="ai_design_style_scandi">Скандинавский</option>
+        <option value="minimal" data-i18n="ai_design_style_minimal">Минимализм</option>
+        <option value="classic" data-i18n="ai_design_style_classic">Классика</option>
+        <option value="loft" data-i18n="ai_design_style_loft">Лофт</option>
+        <option value="hightech" data-i18n="ai_design_style_hightech">Хай-тек</option>
+        <option value="modern" data-i18n="ai_design_style_modern">Современный</option>
+      </select>
+    </div>
+
+    <div class="step-label"><span class="step-badge">3</span><span data-i18n="ai_design_step_desc">Описание</span></div>
     <div style="padding:0 18px;">
       <textarea id="aiDesignPrompt" rows="3" maxlength="600"
         data-i18n-placeholder="ai_design_placeholder"
@@ -1375,6 +1416,16 @@ const I18N = {
     ai_design_intro:'Uyni so‘z bilan ta’riflang — ИИ bir necha fasad rakursi va qavat rejasi eskizini yaratadi. Bu qanday ko‘rinishi mumkinligi haqidagi tasvir, qurilish uchun chizma emas.',
     ai_design_placeholder:'Masalan: bir qavatli g‘isht uy 120 m², qiyshiq tom, katta derazalar, och rangli fasad',
     ai_design_generate:'Yaratish', ai_design_history:'Yaratishlar tarixi',
+    ai_design_step_photo:'Uchastka yoki uy fotosi (ixtiyoriy)',
+    ai_design_upload_hint:'Fotosurat yuklash uchun bosing — ИИ generatsiya qilishda uni hisobga oladi',
+    ai_design_step_params:'Uy parametrlari',
+    ai_design_size_label:'Uy maydoni, m²',
+    ai_design_style_label:'Uslub',
+    ai_design_style_any:'Farqi yo‘q / so‘z bilan ta’riflayman',
+    ai_design_style_scandi:'Skandinaviya', ai_design_style_minimal:'Minimalizm',
+    ai_design_style_classic:'Klassika', ai_design_style_loft:'Loft',
+    ai_design_style_hightech:'Hi-tech', ai_design_style_modern:'Zamonaviy',
+    ai_design_step_desc:'Tavsif',
     builders_market:'Quruvchilar birjasi', builders_request:'Brigada uchun ariza',
     profile_title:'Profil', login_email:'Email orqali kirish', login_phone:'Telefon orqali kirish',
     confirm_title:'Tasdiqlash',
@@ -1454,6 +1505,16 @@ const I18N = {
     ai_design_intro:'Опишите словами дом, который хотите — ИИ сгенерирует несколько фото-вариантов фасада с разных сторон и эскиз планировки. Это иллюстрация «как может выглядеть», а не готовый чертёж для стройки.',
     ai_design_placeholder:'Например: одноэтажный кирпичный дом 120 м², скатная крыша, большие окна, светлый фасад',
     ai_design_generate:'Сгенерировать', ai_design_history:'История генераций',
+    ai_design_step_photo:'Фото участка или дома (необязательно)',
+    ai_design_upload_hint:'Нажмите, чтобы загрузить фото — ИИ учтёт его при генерации',
+    ai_design_step_params:'Параметры дома',
+    ai_design_size_label:'Площадь дома, м²',
+    ai_design_style_label:'Стиль',
+    ai_design_style_any:'Не важно / опишу словами',
+    ai_design_style_scandi:'Скандинавский', ai_design_style_minimal:'Минимализм',
+    ai_design_style_classic:'Классика', ai_design_style_loft:'Лофт',
+    ai_design_style_hightech:'Хай-тек', ai_design_style_modern:'Современный',
+    ai_design_step_desc:'Описание',
     builders_market:'Биржа строителей', builders_request:'Заявка на бригаду',
     profile_title:'Профиль', login_email:'Вход по email', login_phone:'Вход по телефону',
     confirm_title:'Подтверждение',
@@ -2393,6 +2454,40 @@ const AI_DESIGN_ANGLE_LABELS = {
   front: 'Фасад спереди', side: 'Вид сбоку', perspective: 'Ракурс 3/4', plan: 'Эскиз плана'
 };
 let aiDesignBusy = false;
+let aiDesignPhotoBase64 = null;
+const AI_DESIGN_MAX_PHOTO_MB = 6;
+function handleAiDesignPhotoChange(evt){
+  const file = evt.target.files && evt.target.files[0];
+  if(!file) return;
+  if(!file.type.startsWith('image/')){ showToast('Выберите файл изображения'); evt.target.value=''; return; }
+  if(file.size > AI_DESIGN_MAX_PHOTO_MB * 1024 * 1024){ showToast(`Фото слишком большое (максимум ${AI_DESIGN_MAX_PHOTO_MB} МБ)`); evt.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    aiDesignPhotoBase64 = reader.result; // data:image/...;base64,....
+    renderAiDesignPhotoPreview();
+  };
+  reader.readAsDataURL(file);
+}
+function removeAiDesignPhoto(evt){
+  if(evt) evt.stopPropagation();
+  aiDesignPhotoBase64 = null;
+  document.getElementById('aiDesignPhotoInput').value = '';
+  renderAiDesignPhotoPreview();
+}
+function renderAiDesignPhotoPreview(){
+  const box = document.getElementById('aiDesignUploadBox');
+  if(aiDesignPhotoBase64){
+    box.classList.add('has-photo');
+    box.innerHTML = `<button type="button" class="upload-remove" onclick="removeAiDesignPhoto(event)">✕</button>
+      <img src="${aiDesignPhotoBase64}" style="width:100%;height:100%;object-fit:cover;display:block;">`;
+  }else{
+    box.classList.remove('has-photo');
+    box.innerHTML = `<div class="upload-hint" id="aiDesignUploadHint">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5M7 9l5-5 5 5M12 4v13"/></svg>
+      <p data-i18n="ai_design_upload_hint">${t('ai_design_upload_hint')}</p>
+    </div>`;
+  }
+}
 function escapeHtml(str){
   const div = document.createElement('div');
   div.textContent = str == null ? '' : String(str);
@@ -2420,6 +2515,8 @@ async function submitAiDesign(){
   const ta = document.getElementById('aiDesignPrompt');
   const prompt = ta.value.trim();
   if(!prompt){ showToast('Опишите дом текстом — что вы хотите увидеть'); return; }
+  const sizeVal = document.getElementById('aiDesignSize').value.trim();
+  const styleVal = document.getElementById('aiDesignStyle').value;
   aiDesignBusy = true;
   const btn = document.getElementById('aiDesignGenerateBtn');
   const originalLabel = btn.textContent;
@@ -2427,9 +2524,18 @@ async function submitAiDesign(){
   btn.textContent = 'Генерируем… обычно 20-40 секунд';
   document.getElementById('aiDesignResult').innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
   try{
-    const design = await api('/ai-design/generate/', {method:'POST', body:{prompt}});
+    const design = await api('/ai-design/generate/', {method:'POST', body:{
+      prompt,
+      size_m2: sizeVal ? Number(sizeVal) : null,
+      style: styleVal || null,
+      photo_base64: aiDesignPhotoBase64,
+    }});
     renderAiDesignResult(design);
     loadAiDesignHistory();
+    // сбрасываем форму под следующую генерацию
+    removeAiDesignPhoto();
+    document.getElementById('aiDesignSize').value = '';
+    document.getElementById('aiDesignStyle').value = '';
   }catch(err){
     document.getElementById('aiDesignResult').innerHTML = '';
     showError(err);

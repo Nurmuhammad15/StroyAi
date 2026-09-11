@@ -24,6 +24,7 @@ import subprocess
 import sys
 import atexit
 import base64
+import io
 import collections
 import concurrent.futures
 import threading
@@ -32,6 +33,7 @@ import urllib.request
 import urllib.error
 import psycopg2
 import psycopg2.extras
+from PIL import Image
 import psycopg2.pool
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -244,6 +246,22 @@ EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'StroyAI')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 OPENAI_IMAGE_MODEL = os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-1')
 OPENAI_IMAGES_URL = 'https://api.openai.com/v1/images/generations'
+OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits'
+# Референс-фото от пользователя (участок / существующий дом) — ограничение
+# на размер декодированного файла, чтобы не гонять гигантские фото в OpenAI
+# и не давать положить сервер огромным телом запроса.
+AI_DESIGN_MAX_PHOTO_BYTES = 6 * 1024 * 1024
+
+# Стили, которые можно выбрать в дропдауне на фронте (см. index.html,
+# #aiDesignStyle) — ключ должен совпадать со значением <option value="...">.
+AI_DESIGN_STYLE_LABELS = {
+    'scandi': 'скандинавский стиль (светлое дерево, простые формы, светлая отделка)',
+    'minimal': 'минимализм (чистые линии, простые геометрические формы, нейтральные цвета)',
+    'classic': 'классический стиль (симметричный фасад, традиционные материалы и декор)',
+    'loft': 'лофт (кирпичная кладка, металл, индустриальные детали)',
+    'hightech': 'хай-тек (стекло, металл, современные геометрические формы, минимум декора)',
+    'modern': 'современный стиль (лаконичный фасад, панорамные окна, плоская или пологая крыша)',
+}
 # Сколько раз в сутки один пользователь может запускать генерацию —
 # каждый запуск это 4 платных вызова OpenAI, ограничиваем, чтобы никто
 # случайно (или специально) не «съел» весь бюджет за один вечер.
@@ -278,12 +296,46 @@ AI_DESIGN_ANGLES = [
 ]
 
 
+def _openai_images_call(req):
+    """
+    Общая часть вызова OpenAI Images API (generations ИЛИ edits) — отправка
+    запроса и разбор ошибок. Возвращает распарсенный JSON-ответ.
+    """
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        body = ''
+        try:
+            body = e.read().decode('utf-8', 'replace')
+        except Exception:  # noqa: BLE001
+            pass
+        print(f'[ai-design] OpenAI отказал (HTTP {e.code}): {body}')
+        if e.code == 401:
+            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный OPENAI_API_KEY.')
+        if e.code == 429:
+            raise ApiError(429, 'ИИ-Дизайн: превышен лимит запросов/бюджет у OpenAI, попробуйте позже.')
+        raise ApiError(502, 'ИИ-Дизайн: сервис генерации изображений вернул ошибку, попробуйте другой запрос.')
+    except (urllib.error.URLError, OSError) as e:
+        print(f'[ai-design] Сеть недоступна ({type(e).__name__}): {e}')
+        raise ApiError(502, 'ИИ-Дизайн: не удалось связаться с сервисом генерации изображений.')
+
+
+def _openai_images_extract(data):
+    try:
+        b64 = data['data'][0]['b64_json']
+    except (KeyError, IndexError, TypeError):
+        raise ApiError(502, 'ИИ-Дизайн: сервис генерации вернул неожиданный ответ.')
+    return base64.b64decode(b64)
+
+
 def generate_openai_image(prompt):
     """
-    Один вызов OpenAI Images API. Возвращает bytes картинки (PNG).
-    Бросает ApiError с понятным текстом, если ключ не настроен или API
-    отказал (неверный ключ, нет доступа к модели, сработал фильтр контента
-    и т.п.) — чтобы пользователь увидел причину, а не просто "ошибка".
+    Один вызов OpenAI Images API (генерация с нуля, без референс-фото).
+    Возвращает bytes картинки (PNG). Бросает ApiError с понятным текстом,
+    если ключ не настроен или API отказал (неверный ключ, нет доступа к
+    модели, сработал фильтр контента и т.п.) — чтобы пользователь увидел
+    причину, а не просто "ошибка".
     """
     if not OPENAI_API_KEY:
         raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен OPENAI_API_KEY на сервере.')
@@ -302,29 +354,84 @@ def generate_openai_image(prompt):
             'Authorization': f'Bearer {OPENAI_API_KEY}',
         },
     )
+    data = _openai_images_call(req)
+    return _openai_images_extract(data)
+
+
+def _build_multipart_body(fields, files):
+    """
+    Собирает multipart/form-data тело вручную (requests в проекте нет,
+    только stdlib). fields — {name: str}, files — {name: (filename, bytes,
+    content_type)}. Возвращает (boundary, body_bytes).
+    """
+    boundary = 'AiDesignBoundary' + secrets.token_hex(16)
+    parts = []
+    for name, value in fields.items():
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode('utf-8')
+        )
+    for name, (filename, content, content_type) in files.items():
+        header = (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+            f'Content-Type: {content_type}\r\n\r\n'
+        ).encode('utf-8')
+        parts.append(header + content + b'\r\n')
+    parts.append(f'--{boundary}--\r\n'.encode('utf-8'))
+    return boundary, b''.join(parts)
+
+
+def generate_openai_image_edit(prompt, reference_png_bytes):
+    """
+    Вызов OpenAI Images Edit API — генерация "по мотивам" загруженного
+    пользователем референс-фото (участок/существующий дом). Референс
+    передаётся как PNG. Возвращает bytes результата (PNG).
+    """
+    if not OPENAI_API_KEY:
+        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен OPENAI_API_KEY на сервере.')
+    boundary, body = _build_multipart_body(
+        fields={'model': OPENAI_IMAGE_MODEL, 'prompt': prompt, 'size': '1024x1024', 'n': '1'},
+        files={'image': ('reference.png', reference_png_bytes, 'image/png')},
+    )
+    req = urllib.request.Request(
+        OPENAI_IMAGES_EDIT_URL,
+        data=body,
+        method='POST',
+        headers={
+            'Content-Type': f'multipart/form-data; boundary={boundary}',
+            'Authorization': f'Bearer {OPENAI_API_KEY}',
+        },
+    )
+    data = _openai_images_call(req)
+    return _openai_images_extract(data)
+
+
+def decode_and_prepare_reference_photo(photo_b64):
+    """
+    Декодирует base64-фото, присланное фронтом (может быть с префиксом
+    data:image/...;base64,), проверяет что это валидное изображение и
+    сжимает его до разумного размера перед отправкой в OpenAI. Возвращает
+    PNG bytes или None, если фото не передали.
+    """
+    if not photo_b64:
+        return None
+    if ',' in photo_b64 and photo_b64.strip().startswith('data:'):
+        photo_b64 = photo_b64.split(',', 1)[1]
     try:
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-    except urllib.error.HTTPError as e:
-        body = ''
-        try:
-            body = e.read().decode('utf-8', 'replace')
-        except Exception:  # noqa: BLE001
-            pass
-        print(f'[ai-design] OpenAI отказал (HTTP {e.code}): {body}')
-        if e.code == 401:
-            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный OPENAI_API_KEY.')
-        if e.code == 429:
-            raise ApiError(429, 'ИИ-Дизайн: превышен лимит запросов/бюджет у OpenAI, попробуйте позже.')
-        raise ApiError(502, 'ИИ-Дизайн: сервис генерации изображений вернул ошибку, попробуйте другой запрос.')
-    except (urllib.error.URLError, OSError) as e:
-        print(f'[ai-design] Сеть недоступна ({type(e).__name__}): {e}')
-        raise ApiError(502, 'ИИ-Дизайн: не удалось связаться с сервисом генерации изображений.')
+        raw = base64.b64decode(photo_b64, validate=True)
+    except Exception:
+        raise ApiError(400, 'Не удалось прочитать загруженное фото')
+    if len(raw) > AI_DESIGN_MAX_PHOTO_BYTES:
+        raise ApiError(400, 'Фото слишком большое (максимум 6 МБ)')
     try:
-        b64 = data['data'][0]['b64_json']
-    except (KeyError, IndexError, TypeError):
-        raise ApiError(502, 'ИИ-Дизайн: сервис генерации вернул неожиданный ответ.')
-    return base64.b64decode(b64)
+        img = Image.open(io.BytesIO(raw))
+        img.load()
+        img = img.convert('RGB')
+    except Exception:
+        raise ApiError(400, 'Файл не похож на изображение — попробуйте другое фото')
+    img.thumbnail((1024, 1024))
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
 
 STATUS_LABELS = {
     'processing': 'В обработке',
@@ -2819,6 +2926,32 @@ class Handler(BaseHTTPRequestHandler):
             if len(prompt) > 600:
                 raise ApiError(400, 'Слишком длинное описание (максимум 600 символов)')
 
+            # Необязательные поля: площадь дома и стиль из дропдауна —
+            # добавляем их в текст промпта, чтобы модель учла их наравне
+            # с описанием, и чтобы это же было видно в истории генераций.
+            size_m2_raw = body.get('size_m2')
+            size_m2 = None
+            if size_m2_raw not in (None, ''):
+                try:
+                    size_m2 = float(size_m2_raw)
+                except (TypeError, ValueError):
+                    raise ApiError(400, 'Площадь дома должна быть числом')
+                if size_m2 <= 0 or size_m2 > 10000:
+                    raise ApiError(400, 'Укажите реалистичную площадь дома (до 10000 м²)')
+
+            style_key = (body.get('style') or '').strip()
+            if style_key and style_key not in AI_DESIGN_STYLE_LABELS:
+                raise ApiError(400, 'Неизвестный стиль')
+
+            full_prompt = prompt
+            if size_m2:
+                size_txt = f'{size_m2:g}'
+                full_prompt += f'. Площадь дома около {size_txt} м².'
+            if style_key:
+                full_prompt += f'. Стиль: {AI_DESIGN_STYLE_LABELS[style_key]}.'
+
+            reference_png = decode_and_prepare_reference_photo(body.get('photo_base64'))
+
             today_start = datetime.now(timezone.utc).strftime('%Y-%m-%d')
             used_today = conn.execute(
                 "SELECT COUNT(*) AS c FROM ai_designs WHERE user_id=%s AND created_at >= %s",
@@ -2830,7 +2963,7 @@ class Handler(BaseHTTPRequestHandler):
             created_at = now_iso()
             cur = conn.execute(
                 "INSERT INTO ai_designs(user_id, prompt, status, created_at) VALUES(%s,%s,'pending',%s)",
-                (user['id'], prompt, created_at)
+                (user['id'], full_prompt, created_at)
             )
             design_id = cur.lastrowid
             conn.commit()
@@ -2839,9 +2972,14 @@ class Handler(BaseHTTPRequestHandler):
             first_error = None
             # Генерируем 4 картинки параллельно (разные ракурсы) — иначе
             # по одной последовательно это легко 40-60 секунд ожидания.
+            # Если пользователь приложил референс-фото — используем его как
+            # основу через Images Edit API вместо генерации с нуля.
             def _one(angle_key, angle_prompt):
-                full_prompt = f'{prompt}. {angle_prompt}.'
-                png_bytes = generate_openai_image(full_prompt)
+                angle_full_prompt = f'{full_prompt}. {angle_prompt}.'
+                if reference_png is not None:
+                    png_bytes = generate_openai_image_edit(angle_full_prompt, reference_png)
+                else:
+                    png_bytes = generate_openai_image(angle_full_prompt)
                 filename = f'{design_id}_{angle_key}.png'
                 with open(os.path.join(GENERATED_DIR, filename), 'wb') as f:
                     f.write(png_bytes)
