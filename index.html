@@ -261,11 +261,12 @@
   .advantage-card span{font-size:11.5px;color:var(--text-2);line-height:1.4;}
   .advantage-card > div{display:flex;flex-direction:column;gap:4px;}
 
-  /* На телефоне (узкий экран) пункты нижнего меню "ИИ-Дизайн" и "Строители"
-     скрыты — остаются только на десктопе, где .bottom-nav превращается в
-     боковое меню (см. @media (min-width: 860px) ниже). */
+  /* На телефоне (узкий экран) пункт нижнего меню "Строители" скрыт —
+     остаётся только на десктопе, где .bottom-nav превращается в боковое
+     меню (см. @media (min-width: 860px) ниже). "ИИ-Дизайн" теперь показан
+     на всех экранах, включая мобильные. */
   @media (max-width: 859.98px){
-    .nav-item[data-tab="ai-design"], .nav-item[data-tab="builders"]{ display:none !important; }
+    .nav-item[data-tab="builders"]{ display:none !important; }
   }
 
   @media (min-width: 860px){
