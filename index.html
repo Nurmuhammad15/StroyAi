@@ -190,6 +190,20 @@
     .store-stats .stat-label{font-size:12px;}
   }
 
+  .featured-row{display:flex;gap:12px;overflow-x:auto;padding:0 18px 4px;scrollbar-width:none;}
+  .featured-row::-webkit-scrollbar{display:none;}
+  .featured-row .product-card{flex-shrink:0;width:148px;}
+  .featured-row .product-info .pname{min-height:auto;}
+
+  .advantages-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 18px 8px;}
+  .advantage-card{
+    background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:14px;display:flex;flex-direction:column;gap:5px;
+  }
+  .advantage-card .adv-icon{font-size:20px;}
+  .advantage-card b{font-size:13px;font-weight:700;}
+  .advantage-card span{font-size:11.5px;color:var(--text-2);line-height:1.4;}
+
   /* На телефоне (узкий экран) пункты нижнего меню "ИИ-Дизайн" и "Строители"
      скрыты — остаются только на десктопе, где .bottom-nav превращается в
      боковое меню (см. @media (min-width: 860px) ниже). */
@@ -824,12 +838,6 @@
       <div>📐 <span data-i18n="utp_calc">Считаем точно — без лишнего</span></div>
     </div>
 
-    <div class="store-stats" id="storeStats">
-      <div class="stat-card"><span class="stat-num" id="statSold">—</span><span class="stat-label" data-i18n="stat_sold">Товаров продано</span></div>
-      <div class="stat-card"><span class="stat-num" id="statProducts">—</span><span class="stat-label" data-i18n="stat_products">В каталоге</span></div>
-      <div class="stat-card"><span class="stat-num" id="statClients">—</span><span class="stat-label" data-i18n="stat_clients">Клиентов</span></div>
-    </div>
-
     <div class="section-head"><h3 data-i18n="popular_styles">Популярные стили</h3></div>
     <div class="styles-row" id="homeStylesRow"></div>
 
@@ -840,6 +848,27 @@
       <li class="step-item"><div class="step-num">3</div><p data-i18n="step3">Мы привезём всё по Ташкенту и области</p></li>
       <li class="step-item"><div class="step-num">4</div><p data-i18n="step4">Следите за статусом в разделе «Мои заказы»</p></li>
     </ol>
+
+    <div class="section-head"><h3 data-i18n="stats_title">Магазин в цифрах</h3></div>
+    <div class="store-stats" id="storeStats">
+      <div class="stat-card"><span class="stat-num" id="statSold">—</span><span class="stat-label" data-i18n="stat_sold">Товаров продано</span></div>
+      <div class="stat-card"><span class="stat-num" id="statProducts">—</span><span class="stat-label" data-i18n="stat_products">В каталоге</span></div>
+      <div class="stat-card"><span class="stat-num" id="statClients">—</span><span class="stat-label" data-i18n="stat_clients">Клиентов</span></div>
+    </div>
+
+    <div class="section-head">
+      <h3 data-i18n="featured_products">Популярные товары</h3>
+      <button class="link-btn" data-i18n="see_all" onclick="goTab('catalog')">Все товары</button>
+    </div>
+    <div class="featured-row" id="featuredProductsRow"></div>
+
+    <div class="section-head"><h3 data-i18n="why_us">Почему выбирают нас</h3></div>
+    <div class="advantages-grid">
+      <div class="advantage-card"><span class="adv-icon">🏭</span><b data-i18n="adv1_title">Напрямую с заводов</b><span data-i18n="adv1_text">Без лишних посредников и наценок</span></div>
+      <div class="advantage-card"><span class="adv-icon">✅</span><b data-i18n="adv2_title">Проверка перед оплатой</b><span data-i18n="adv2_text">Платите только после подтверждения заказа</span></div>
+      <div class="advantage-card"><span class="adv-icon">🤖</span><b data-i18n="adv3_title">ИИ-расчёт материалов</b><span data-i18n="adv3_text">Не переплачиваете за лишние материалы</span></div>
+      <div class="advantage-card"><span class="adv-icon">📞</span><b data-i18n="adv4_title">Поддержка каждый день</b><span data-i18n="adv4_text">Ответим на вопросы по заказу и доставке</span></div>
+    </div>
   </div>
 
   <!-- ================= CATALOG ================= -->
@@ -1282,6 +1311,12 @@ const I18N = {
     utp_price:'Ulgurji narxlarga yaqin', utp_delivery:'Toshkent va viloyat bo\'ylab yetkazib berish',
     utp_calc:'Aniq hisoblaymiz — ortiqchasiz',
     stat_sold:'Sotilgan mahsulot', stat_products:'Katalogda', stat_clients:'Mijozlar',
+    stats_title:"Do'kon raqamlarda", featured_products:'Mashhur mahsulotlar', see_all:'Barchasi',
+    why_us:'Nega bizni tanlashadi',
+    adv1_title:"To'g'ridan-to'g'ri zavoddan", adv1_text:"Ortiqcha vositachi va ustamalarsiz",
+    adv2_title:"To'lovdan oldin tekshiruv", adv2_text:"Buyurtma tasdiqlangandan keyin to'lov",
+    adv3_title:"Sun'iy intellekt hisob-kitobi", adv3_text:"Ortiqcha material uchun to'lamaysiz",
+    adv4_title:"Har kuni qo'llab-quvvatlash", adv4_text:"Buyurtma va yetkazib berish bo'yicha javob beramiz",
     popular_styles:'Mashhur uslublar', how_it_works:'Bu qanday ishlaydi',
     step1:'Kerakli materiallarni katalogdan tanlang', step2:'Savatga qo\'shing va buyurtma rasmiylashtiring',
     step3:'Toshkent va viloyat bo\'ylab hammasini olib kelamiz', step4:'«Buyurtmalarim» bo\'limida holatni kuzating',
@@ -1353,6 +1388,12 @@ const I18N = {
     utp_price:'Цены ближе к оптовым', utp_delivery:'Доставка по Ташкенту и области',
     utp_calc:'Считаем точно — без лишнего',
     stat_sold:'Товаров продано', stat_products:'В каталоге', stat_clients:'Клиентов',
+    stats_title:'Магазин в цифрах', featured_products:'Популярные товары', see_all:'Все товары',
+    why_us:'Почему выбирают нас',
+    adv1_title:'Напрямую с заводов', adv1_text:'Без лишних посредников и наценок',
+    adv2_title:'Проверка перед оплатой', adv2_text:'Платите только после подтверждения заказа',
+    adv3_title:'ИИ-расчёт материалов', adv3_text:'Не переплачиваете за лишние материалы',
+    adv4_title:'Поддержка каждый день', adv4_text:'Ответим на вопросы по заказу и доставке',
     popular_styles:'Популярные стили', how_it_works:'Как это работает',
     step1:'Выберите нужные материалы в каталоге', step2:'Добавьте в корзину и оформите заказ',
     step3:'Мы привезём всё по Ташкенту и области', step4:'Следите за статусом в разделе «Мои заказы»',
@@ -1459,6 +1500,7 @@ function setLang(lang){
   if(document.querySelector('.page[data-page="product"]')?.classList.contains('active') && state.currentProductId){
     const p = productById(state.currentProductId); if(p) renderProductPage(p);
   }
+  renderFeaturedProducts();
 }
 
 /* ============ STATE ============ */
@@ -2117,6 +2159,26 @@ function renderCatalog(){
   `).join('');
 }
 function productById(id){ return state.products.find(p=>p.id===id); }
+
+/* Небольшая витрина товаров на главной странице — просто первые товары
+   из каталога с фото, названием и ценой, кликабельные как в каталоге. */
+function renderFeaturedProducts(){
+  const el = document.getElementById('featuredProductsRow');
+  if(!el) return;
+  if(!state.products || !state.products.length){ el.innerHTML = ''; return; }
+  const items = state.products.slice(0, 10);
+  el.innerHTML = items.map(p=>`
+    <div class="product-card" onclick="openProductPage(${p.id})">
+      <div class="swatch" style="aspect-ratio:${productAspect(p)};">${productVisual(p)}</div>
+      <div class="product-info">
+        <p class="pname">${pname(p)}</p>
+        <div class="price-row" style="margin-top:6px;">
+          <span class="price">${Number(p.price).toLocaleString('ru-RU')} сум/${p.unit}</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
 
 /* ============ PRODUCT DETAIL ============ */
 async function openProductPage(id){
@@ -3085,6 +3147,7 @@ async function loadUsdRate(){
   loadStoreStats();
   await loadCategories();
   await loadCatalog();
+  renderFeaturedProducts();
   await restoreSession();
   // Гостю (ещё не вошёл) корзину из localStorage тоже нужно посчитать сразу
   // при открытии сайта — иначе точка-бейдж на «Корзине» появится только
