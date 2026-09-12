@@ -1032,8 +1032,8 @@
   <div class="page" data-page="ai-design">
     <div class="topbar"><h1 data-i18n="nav_ai">ИИ-Дизайн</h1></div>
     <p style="padding:0 18px 14px;color:var(--text-2);font-size:13px;line-height:1.5;" data-i18n="ai_design_intro">
-      Опишите словами дом, который хотите — ИИ сгенерирует несколько фото-вариантов фасада с разных
-      сторон и эскиз планировки. Это иллюстрация «как может выглядеть», а не готовый чертёж для стройки.
+      Опишите словами дом, который хотите (площадь, комнаты, что для вас важно — гараж, кабинет,
+      большая кухня и т.п.) — ИИ построит чертёж: список комнат с площадью и схему планировки.
     </p>
     <div class="step-label"><span class="step-badge">1</span><span data-i18n="ai_design_step_params">Параметры дома</span></div>
     <div class="form-field">
@@ -1057,18 +1057,18 @@
       </select>
     </div>
     <p style="padding:0 18px;margin:-4px 0 4px;font-size:12px;color:var(--text-2);" data-i18n="ai_design_plan_note">
-      Если указать площадь и количество спален — точный план этажа с размерами в метрах будет посчитан отдельно (не ИИ-картинкой, а формулой), поэтому цифры на нём всегда верные.
+      ИИ прочитает всё описание целиком (не только площадь и число спален) и подберёт комнаты и их размеры под ваши пожелания.
     </p>
 
     <div class="step-label"><span class="step-badge">2</span><span data-i18n="ai_design_step_desc">Описание</span></div>
     <div style="padding:0 18px;">
       <textarea id="aiDesignPrompt" rows="3" maxlength="600"
         data-i18n-placeholder="ai_design_placeholder"
-        placeholder="Например: одноэтажный кирпичный дом 120 м², скатная крыша, большие окна, светлый фасад"
+        placeholder="Например: одноэтажный дом 120 м², 3 спальни, просторная кухня-гостиная, отдельный кабинет и гараж на одну машину"
         style="width:100%;border:1px solid var(--border);border-radius:12px;padding:12px;font:inherit;
                resize:vertical;background:var(--card);color:var(--text);box-sizing:border-box;"></textarea>
       <button class="primary-btn" style="width:100%;margin:10px 0 0;" id="aiDesignGenerateBtn"
-        onclick="submitAiDesign()" data-i18n="ai_design_generate">Сгенерировать</button>
+        onclick="submitAiDesign()" data-i18n="ai_design_generate">Построить чертёж</button>
     </div>
     <div id="aiDesignResult" style="padding:14px 18px 0;"></div>
     <div style="padding:22px 18px 8px;">
@@ -1411,14 +1411,14 @@ const I18N = {
     city_soon_toast:'Bu hududda hozircha ishlamaymiz — tez orada qo\'shamiz',
     search_catalog:'Qidiruv va katalog', about_product:'Mahsulot haqida', reviews:'Sharhlar',
     ai_design_soon:'AI-Dizayn (tez orada)', design_result:'Dizayn natijasi',
-    ai_design_intro:'Uyni so‘z bilan ta’riflang — ИИ bir necha fasad rakursi va qavat rejasi eskizini yaratadi. Bu qanday ko‘rinishi mumkinligi haqidagi tasvir, qurilish uchun chizma emas.',
-    ai_design_placeholder:'Masalan: bir qavatli g‘isht uy 120 m², qiyshiq tom, katta derazalar, och rangli fasad',
-    ai_design_generate:'Yaratish', ai_design_history:'Yaratishlar tarixi',
+    ai_design_intro:'Uyingizni so‘z bilan ta’riflang (maydon, xonalar, siz uchun muhim narsalar — garaj, kabinet, katta oshxona va h.k.) — ИИ chizma tuzadi: xonalar ro‘yxati va ularning maydoni bilan reja.',
+    ai_design_placeholder:'Masalan: bir qavatli uy 120 m², 3 yotoqxona, keng oshxona-mehmonxona, alohida kabinet va bir mashinali garaj',
+    ai_design_generate:'Chizma tuzish', ai_design_history:'Yaratishlar tarixi',
     ai_design_step_params:'Uy parametrlari',
     ai_design_size_label:'Uy maydoni, m²',
     ai_design_bedrooms_label:"Yotoq xonalari soni",
-    ai_design_plan_note:"Agar maydon va yotoqxonalar sonini kiritsangiz — aniq qavat rejasi (santimetrigacha) formula bilan hisoblanadi, ИИ-rasm emas, shuning uchun raqamlar har doim to'g'ri bo'ladi.",
-    ai_design_plan_title:'Aniq qavat rejasi', ai_design_plan_subtitle:"Formula bilan hisoblangan — rasm emas, shuning uchun o'lchamlar aniq",
+    ai_design_plan_note:"ИИ butun tavsifni o'qiydi (nafaqat maydon va yotoqxonalar sonini) va xonalarni sizning istaklaringizga moslab tanlaydi.",
+    ai_design_plan_title:'Chizma (xonalar rejasi)', ai_design_plan_subtitle:"ИИ tomonidan tavsifingiz asosida tuzilgan — maydonlar taxminiy, aniq loyiha uchun arxitektor kerak",
     ai_design_room_living:'Mehmonxona', ai_design_room_kitchen:'Oshxona', ai_design_room_bedroom:'Yotoqxona',
     ai_design_room_bathroom:'Hammom', ai_design_room_wc:'Hojatxona', ai_design_room_hallway:'Yo\'lak',
     ai_design_room_wardrobe:'Kiyimxona', ai_design_room_study:'Kabinet', ai_design_room_pantry:'Ombor',
@@ -1506,14 +1506,14 @@ const I18N = {
     city_soon_toast:'В этом городе пока не работаем — скоро подключим',
     search_catalog:'Поиск и каталог', about_product:'О товаре', reviews:'Отзывы',
     ai_design_soon:'ИИ-Дизайн (скоро)', design_result:'Результат дизайна',
-    ai_design_intro:'Опишите словами дом, который хотите — ИИ сгенерирует несколько фото-вариантов фасада с разных сторон и эскиз планировки. Это иллюстрация «как может выглядеть», а не готовый чертёж для стройки.',
-    ai_design_placeholder:'Например: одноэтажный кирпичный дом 120 м², скатная крыша, большие окна, светлый фасад',
-    ai_design_generate:'Сгенерировать', ai_design_history:'История генераций',
+    ai_design_intro:'Опишите словами дом, который хотите (площадь, комнаты, что для вас важно — гараж, кабинет, большая кухня и т.п.) — ИИ построит чертёж: список комнат с площадью и схему планировки.',
+    ai_design_placeholder:'Например: одноэтажный дом 120 м², 3 спальни, просторная кухня-гостиная, отдельный кабинет и гараж на одну машину',
+    ai_design_generate:'Построить чертёж', ai_design_history:'История генераций',
     ai_design_step_params:'Параметры дома',
     ai_design_size_label:'Площадь дома, м²',
     ai_design_bedrooms_label:'Количество спален',
-    ai_design_plan_note:'Если указать площадь и количество спален — точный план этажа с размерами в метрах будет посчитан отдельно (не ИИ-картинкой, а формулой), поэтому цифры на нём всегда верные.',
-    ai_design_plan_title:'Точный план этажа', ai_design_plan_subtitle:'Посчитано формулой — это не рисунок, поэтому размеры точные',
+    ai_design_plan_note:'ИИ прочитает всё описание целиком (не только площадь и число спален) и подберёт комнаты и их размеры под ваши пожелания.',
+    ai_design_plan_title:'Чертёж (план комнат)', ai_design_plan_subtitle:'Построено ИИ по вашему описанию — площади в м² приблизительные, для точного проекта нужен архитектор',
     ai_design_room_living:'Гостиная', ai_design_room_kitchen:'Кухня', ai_design_room_bedroom:'Спальня',
     ai_design_room_bathroom:'Ванная', ai_design_room_wc:'Санузел', ai_design_room_hallway:'Коридор',
     ai_design_room_wardrobe:'Гардеробная', ai_design_room_study:'Кабинет', ai_design_room_pantry:'Кладовая',
@@ -2460,9 +2460,6 @@ async function loadReviews(){
 }
 
 /* ============ AI DESIGN ============ */
-const AI_DESIGN_ANGLE_LABELS = {
-  front: 'Фасад спереди', side: 'Вид сбоку', perspective: 'Ракурс 3/4', plan: 'Эскиз плана'
-};
 let aiDesignBusy = false;
 function escapeHtml(str){
   const div = document.createElement('div');
@@ -2470,15 +2467,40 @@ function escapeHtml(str){
   return div.innerHTML;
 }
 
-/* ============ Точный план этажа (формула, не ИИ) ============
-   Комнаты считаются по доле от общей площади (проверенные ориентиры для
-   жилых домов). Если после гостиной/кухни/спален/санузлов/коридора
-   остаётся много свободной площади (большой дом с малым числом спален) —
-   она НЕ сваливается в одну гигантскую гостиную, а грамотно раскидывается
-   по дополнительным помещениям (гардеробная, кабинет, кладовая, терраса,
-   гараж и т.д.) — как сделал бы архитектор. Сумма площадей всех комнат
-   всегда равна введённой площади дома — поэтому план "точный": это не
-   рисунок, а расчёт. */
+/* ============ Раскладка списка комнат в прямоугольную схему ============
+   Берёт ГОТОВЫЙ список комнат [{name, area}] — сейчас его строит Claude по
+   тексту клиента (см. /ai-design/generate/ на бэкенде) — и раскладывает их
+   рядами в прямоугольник так, чтобы площадь каждой комнаты на схеме была
+   пропорциональна её area. Сама расстановка (кто где стоит) — просто
+   наглядная схема, а не точный архитектурный чертёж. */
+function layoutRoomsList(rooms){
+  const list = (rooms || []).filter(r => r && r.area > 0);
+  if(!list.length) return { width: 1, depth: 1, area: 0, rooms: [] };
+  const ROOMS_PER_ROW = 3;
+  const rows = [];
+  for(let i=0; i<list.length; i+=ROOMS_PER_ROW){
+    rows.push(list.slice(i, i+ROOMS_PER_ROW));
+  }
+  const totalArea = list.reduce((s,r)=>s+r.area, 0);
+  const W = Math.sqrt(totalArea * 1.3);
+  let y = 0;
+  const placedRooms = [];
+  rows.forEach(row=>{
+    const rowArea = row.reduce((s,r)=>s+r.area, 0);
+    const rowDepth = rowArea / W;
+    let x = 0;
+    row.forEach(r=>{
+      const w = r.area / rowDepth;
+      placedRooms.push({name:r.name, area:r.area, x, y, w, d: rowDepth});
+      x += w;
+    });
+    y += rowDepth;
+  });
+  return { width: W, depth: y, area: totalArea, rooms: placedRooms };
+}
+
+/* ============ Legacy: план по формуле (для старых записей истории без
+   rooms_json — созданных до перехода на Claude) ============ */
 function buildFloorPlan(sizeM2, bedroomsInput){
   const A = Math.max(1, Number(sizeM2) || 0);
   const N = Math.max(1, Math.min(10, Math.round(Number(bedroomsInput) || 1)));
@@ -2617,8 +2639,14 @@ function renderFloorPlanSVG(layout){
 }
 
 function renderAiDesignFloorPlanBlock(design){
-  if(!design || !design.size_m2) return '';
-  const layout = buildFloorPlan(design.size_m2, design.bedrooms || 1);
+  if(!design) return '';
+  // Основной путь: комнаты построены Claude по тексту клиента.
+  // Fallback на формулу — только для старых записей истории (созданных до
+  // перехода на Claude), у которых rooms пуст, но есть size_m2/bedrooms.
+  const layout = (design.rooms && design.rooms.length)
+    ? layoutRoomsList(design.rooms)
+    : (design.size_m2 ? buildFloorPlan(design.size_m2, design.bedrooms || 1) : null);
+  if(!layout) return '';
   return `<div style="margin-top:14px;border:1px solid var(--border);border-radius:12px;padding:12px;">
     <div style="font-size:13px;font-weight:700;margin-bottom:2px;">${t('ai_design_plan_title')}</div>
     <div style="font-size:11.5px;color:var(--text-2);margin-bottom:8px;">${t('ai_design_plan_subtitle')}</div>
@@ -2626,22 +2654,11 @@ function renderAiDesignFloorPlanBlock(design){
   </div>`;
 }
 
-function renderAiDesignImages(images){
-  if(!images || !images.length) return '';
-  return `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px;">
-    ${images.map(im=>`
-      <div style="border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--bg);">
-        <img src="${im.path}" style="width:100%;display:block;aspect-ratio:1;object-fit:cover;" loading="lazy" alt="${escapeHtml(AI_DESIGN_ANGLE_LABELS[im.angle]||im.angle)}">
-        <div style="padding:6px 8px;font-size:11.5px;color:var(--text-2);text-align:center;">${escapeHtml(AI_DESIGN_ANGLE_LABELS[im.angle]||im.angle)}</div>
-      </div>`).join('')}
-  </div>`;
-}
 function renderAiDesignResult(design){
   const box = document.getElementById('aiDesignResult');
   let note = '';
-  if(design.status==='partial') note = `<p style="color:#c77a1a;font-size:12.5px;margin:0 0 4px;">Не все картинки удалось сгенерировать: ${escapeHtml(design.error||'')}</p>`;
-  if(design.status==='failed') note = `<p style="color:#d33;font-size:12.5px;margin:0 0 4px;">Не получилось сгенерировать: ${escapeHtml(design.error||'ошибка сервиса')}</p>`;
-  box.innerHTML = note + renderAiDesignImages(design.images) + renderAiDesignFloorPlanBlock(design);
+  if(design.status==='failed') note = `<p style="color:#d33;font-size:12.5px;margin:0 0 4px;">Не получилось построить чертёж: ${escapeHtml(design.error||'ошибка сервиса')}</p>`;
+  box.innerHTML = note + renderAiDesignFloorPlanBlock(design);
 }
 async function submitAiDesign(){
   if(aiDesignBusy) return;
@@ -2655,7 +2672,7 @@ async function submitAiDesign(){
   const btn = document.getElementById('aiDesignGenerateBtn');
   const originalLabel = btn.textContent;
   btn.disabled = true;
-  btn.textContent = 'Генерируем… обычно 20-40 секунд';
+  btn.textContent = 'Строим чертёж… обычно 5-15 секунд';
   document.getElementById('aiDesignResult').innerHTML = `<div class="empty-state">${loadingSpinnerHTML()}</div>`;
   try{
     const design = await api('/ai-design/generate/', {method:'POST', body:{
@@ -2692,7 +2709,6 @@ async function loadAiDesignHistory(){
       <div style="padding:14px 0;border-bottom:1px solid var(--border);">
         <div style="font-size:13px;font-weight:600;margin-bottom:2px;">${escapeHtml(d.prompt)}</div>
         <div style="font-size:11px;color:var(--text-2);">${new Date(d.created_at).toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</div>
-        ${renderAiDesignImages(d.images)}
         ${renderAiDesignFloorPlanBlock(d)}
       </div>`).join('');
   }catch(err){

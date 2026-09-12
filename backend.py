@@ -23,10 +23,8 @@ import string
 import subprocess
 import sys
 import atexit
-import base64
 import io
 import collections
-import concurrent.futures
 import threading
 import time
 import urllib.request
@@ -326,20 +324,15 @@ def ask_claude_support(conn, user_message, history=None):
 
 
 # ---------------------------------------------------------------------------
-# ИИ-Дизайн: генерация 3 фотореалистичных ракурсов дома через Google Gemini
-# (модель gemini-3.1-flash-image-preview, она же "Nano Banana 2") по
-# текстовому описанию клиента — без промежуточных шагов (без "улучшения"
-# промпта другой моделью и без отдельного чертежа фасада — просто и
-# предсказуемо: что описал клиент, то и рисуем в трёх ракурсах).
-# Нужно на Railway задать:
-#   GEMINI_API_KEY=AIza...   (получить в Google AI Studio: aistudio.google.com/apikey)
+# ИИ-Дизайн: генерация чертежа (плана комнат) по текстовому описанию клиента
+# через Claude (Anthropic API) — используется тот же ключ ANTHROPIC_API_KEY,
+# что и для ИИ-консультанта поддержки (см. выше). Claude не рисует картинку,
+# а возвращает СТРУКТУРИРОВАННЫЕ данные (JSON со списком комнат и их
+# площадью), которые дальше превращаются в точную SVG-схему на фронте
+# (renderFloorPlanSVG в index.html) — поэтому это именно чертёж с корректными
+# цифрами, а не фотореалистичная иллюстрация.
 # Без ключа раздел ИИ-Дизайна возвращает понятную ошибку вместо падения.
-# У Gemini есть бесплатный лимит запросов в день — для старта хватает, при
-# росте нагрузки нужно включить платный биллинг в Google Cloud.
 # ---------------------------------------------------------------------------
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-GEMINI_IMAGE_MODEL = os.environ.get('GEMINI_IMAGE_MODEL', 'gemini-3.1-flash-image-preview')
-GEMINI_GENERATE_URL = f'https://generativelanguage.googleapis.com/v1beta/models/{{model}}:generateContent'
 
 # Стили, которые можно выбрать в дропдауне на фронте (см. index.html,
 # #aiDesignStyle) — ключ должен совпадать со значением <option value="...">.
@@ -352,10 +345,9 @@ AI_DESIGN_STYLE_LABELS = {
     'modern': 'современный стиль (лаконичный фасад, панорамные окна, плоская или пологая крыша)',
 }
 # Сколько раз в сутки один пользователь может запускать генерацию —
-# каждый запуск это 4 платных вызова OpenAI, ограничиваем, чтобы никто
-# случайно (или специально) не «съел» весь бюджет за один вечер.
+# ограничиваем, чтобы никто случайно (или специально) не «съел» весь
+# дневной бюджет запросов к Claude за один вечер.
 AI_DESIGN_DAILY_LIMIT = int(os.environ.get('AI_DESIGN_DAILY_LIMIT', '3'))
-GENERATED_DIR = os.path.join(BASE_DIR, 'generated')
 
 # ---------------------------------------------------------------------------
 # CORS: раньше Access-Control-Allow-Origin был '*' — API отвечало вообще
@@ -372,48 +364,63 @@ ALLOWED_ORIGINS = set(
     o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS', _default_origins).split(',') if o.strip()
 )
 
-# Каждый элемент: (ключ_ракурса, подпись для промпта). Подпись добавляется
-# К промпту пользователя, а не заменяет его — так по одному описанию дома
-# получается небольшой, но цельный комплект картинок.
-# Ракурс "plan" (эскиз планировки) сюда специально НЕ включён: генеративная
-# картинка не может гарантировать точные размеры комнат, а пользователю
-# нужен именно точный план — он считается формулой в build_floor_plan() и
-# рисуется на фронте как SVG, а не генерируется ИИ.
-AI_DESIGN_ANGLES = [
-    ('front', 'Фасад дома спереди, вид с улицы, реалистичное фото, дневной свет'),
-    ('side', 'Тот же дом, вид сбоку (с торца), реалистичное фото, дневной свет'),
-    ('perspective', 'Тот же дом, вид с угла в три четверти, реалистичное фото, дневной свет'),
-]
 
+def generate_claude_floor_plan(full_prompt, size_m2, bedrooms):
+    """
+    Просит Claude построить чертёж (список комнат с площадью) по ПОЛНОМУ
+    тексту описания клиента — не только по площади/спальням, а с учётом
+    всего, что клиент написал (нужен гараж, отдельный кабинет, большая
+    кухня-гостиная и т.п.). Возвращает список словарей
+    [{"name": "...", "area": число_в_м2}, ...].
 
-def generate_gemini_image(prompt):
+    Модель обязана вернуть ЧИСТЫЙ JSON без пояснений — это парсится строго,
+    без regex по тексту. Если json невалиден или сумма площадей явно не
+    сходится с общей площадью дома — бросаем ApiError, чтобы не показать
+    клиенту чертёж с неверными цифрами.
     """
-    Один вызов Gemini generateContent с модальностью IMAGE по текстовому
-    промпту. Возвращает bytes картинки (PNG). Бросает ApiError с понятным
-    текстом, если ключ не настроен или API отказал (неверный ключ, лимит
-    исчерпан, сработал фильтр безопасности и т.п.) — чтобы пользователь
-    увидел причину, а не просто "ошибка".
-    """
-    if not GEMINI_API_KEY:
-        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен GEMINI_API_KEY на сервере.')
+    if not ANTHROPIC_API_KEY:
+        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен ANTHROPIC_API_KEY на сервере.')
+
+    size_hint = f'Общая площадь дома: {size_m2:g} м². Сумма площадей всех комнат должна быть равна {size_m2:g} м² (допустима погрешность не больше 3%).' if size_m2 else (
+        'Площадь дома клиент не указал — оцени разумную общую площадь сам исходя из описания и количества комнат.'
+    )
+    bedrooms_hint = f'Количество спален: {bedrooms}.' if bedrooms else ''
+
+    system_prompt = (
+        'Ты — архитектор-планировщик. По описанию дома от клиента строишь '
+        'ЧЕРТЁЖ — список комнат с их площадью в квадратных метрах, учитывая '
+        'ВСЁ, что написал клиент (не только площадь и число спален, но и '
+        'явные пожелания: гараж, кабинет, гардеробная, отдельный санузел, '
+        'терраса, кладовая и т.д.).\n'
+        f'{size_hint}\n{bedrooms_hint}\n'
+        'Обязательные комнаты, если явно не сказано иное: гостиная, кухня, '
+        'хотя бы одна спальня, хотя бы один санузел, прихожая/коридор.\n'
+        'Ответь СТРОГО валидным JSON и НИЧЕМ БОЛЬШЕ (без markdown, без ```, '
+        'без пояснений до или после) в формате:\n'
+        '{"rooms": [{"name": "Название комнаты по-русски", "area": число}]}\n'
+        'Площади — реалистичные числа в м² (например спальня 10-18, кухня '
+        '8-20, санузел 3-8, гостиная 16-40).'
+    )
 
     payload = json.dumps({
-        'contents': [{'parts': [{'text': prompt}]}],
-        'generationConfig': {'responseModalities': ['TEXT', 'IMAGE']},
+        'model': ANTHROPIC_MODEL,
+        'max_tokens': 1000,
+        'system': system_prompt,
+        'messages': [{'role': 'user', 'content': full_prompt}],
     }).encode('utf-8')
 
-    url = GEMINI_GENERATE_URL.format(model=GEMINI_IMAGE_MODEL)
     req = urllib.request.Request(
-        url,
+        ANTHROPIC_API_URL,
         data=payload,
         method='POST',
         headers={
             'Content-Type': 'application/json',
-            'x-goog-api-key': GEMINI_API_KEY,
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=90) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
         body = ''
@@ -421,35 +428,42 @@ def generate_gemini_image(prompt):
             body = e.read().decode('utf-8', 'replace')
         except Exception:  # noqa: BLE001
             pass
-        print(f'[ai-design] Gemini отказал (HTTP {e.code}): {body}')
+        print(f'[ai-design] Claude отказал (HTTP {e.code}): {body}')
         if e.code in (401, 403):
-            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный GEMINI_API_KEY.')
+            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный ANTHROPIC_API_KEY.')
         if e.code == 429:
-            raise ApiError(429, 'ИИ-Дизайн: превышен дневной лимит запросов у Gemini, попробуйте позже.')
-        raise ApiError(502, 'ИИ-Дизайн: сервис генерации изображений вернул ошибку, попробуйте другой запрос.')
+            raise ApiError(429, 'ИИ-Дизайн: превышен лимит запросов, попробуйте позже.')
+        raise ApiError(502, 'ИИ-Дизайн: сервис вернул ошибку, попробуйте другой запрос.')
     except (urllib.error.URLError, OSError) as e:
         print(f'[ai-design] Сеть недоступна ({type(e).__name__}): {e}')
-        raise ApiError(502, 'ИИ-Дизайн: не удалось связаться с сервисом генерации изображений.')
+        raise ApiError(502, 'ИИ-Дизайн: не удалось связаться с сервисом.')
 
     try:
-        candidate = data['candidates'][0]
-        # блокировка safety-фильтром — обычная (не HTTP-)ошибка, у неё
-        # просто нет частей с картинкой в ответе
-        if candidate.get('finishReason') == 'SAFETY':
-            raise ApiError(422, 'ИИ-Дизайн: запрос отклонён фильтром безопасности, переформулируйте описание.')
-        image_b64 = None
-        for part in candidate['content']['parts']:
-            inline = part.get('inlineData') or part.get('inline_data')
-            if inline and inline.get('data'):
-                image_b64 = inline['data']
-                break
-        if not image_b64:
-            raise ApiError(502, 'ИИ-Дизайн: сервис не вернул картинку, попробуйте другой запрос.')
-    except ApiError:
-        raise
+        raw_text = '\n'.join(b['text'] for b in data['content'] if b.get('type') == 'text').strip()
     except (KeyError, IndexError, TypeError):
-        raise ApiError(502, 'ИИ-Дизайн: сервис генерации вернул неожиданный ответ.')
-    return base64.b64decode(image_b64)
+        raise ApiError(502, 'ИИ-Дизайн: сервис вернул неожиданный ответ.')
+
+    # На случай если модель всё же обернёт JSON в ```json ... ``` — снимаем
+    # обёртку перед парсингом, но саму структуру разбираем строго через
+    # json.loads, а не регулярками по тексту.
+    cleaned = re.sub(r'^```(?:json)?|```$', '', raw_text.strip(), flags=re.MULTILINE).strip()
+    try:
+        parsed = json.loads(cleaned)
+        rooms = parsed['rooms']
+        if not isinstance(rooms, list) or not rooms:
+            raise ValueError('empty rooms')
+        result = []
+        for r in rooms:
+            name = str(r['name']).strip()
+            area = float(r['area'])
+            if not name or area <= 0:
+                raise ValueError('bad room')
+            result.append({'name': name, 'area': round(area, 1)})
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        print(f'[ai-design] Claude вернул невалидный чертёж: {raw_text[:500]}')
+        raise ApiError(502, 'ИИ-Дизайн: не удалось построить чертёж, попробуйте переформулировать описание.')
+
+    return result
 
 
 STATUS_LABELS = {
@@ -826,10 +840,9 @@ SCHEMA_STATEMENTS = [
         amount DOUBLE PRECISION,
         created_at TEXT NOT NULL
     )''',
-    # Одна строка = один запуск ИИ-дизайна (по одному промпту пользователя
-    # генерируется сразу несколько картинок — разные ракурсы фасада плюс
-    # эскиз планировки). images_json — список объектов
-    # {"angle": "...", "path": "/generated/..png"}. status: pending /
+    # Одна строка = один запуск ИИ-Дизайна (по одному промпту пользователя
+    # Claude строит чертёж — список комнат с площадью). rooms_json —
+    # список объектов {"name": "...", "area": число_в_м2}. status: pending /
     # done / failed. error — текст ошибки, если что-то не получилось
     # (чтобы показать пользователю, а не просто "ничего не произошло").
     '''CREATE TABLE IF NOT EXISTS ai_designs(
@@ -837,7 +850,7 @@ SCHEMA_STATEMENTS = [
         user_id INTEGER NOT NULL REFERENCES users(id),
         prompt TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
-        images_json TEXT NOT NULL DEFAULT '[]',
+        rooms_json TEXT NOT NULL DEFAULT '[]',
         error TEXT,
         created_at TEXT NOT NULL
     )''',
@@ -908,6 +921,13 @@ def init_db():
         # момент создания.
         "ALTER TABLE ai_designs ADD COLUMN IF NOT EXISTS size_m2 DOUBLE PRECISION",
         "ALTER TABLE ai_designs ADD COLUMN IF NOT EXISTS bedrooms INTEGER",
+        # --- переход с картинок (Gemini) на чертёж-JSON от Claude ---
+        # На уже существующей базе таблица могла быть создана ДО этого
+        # перехода (с колонкой images_json вместо rooms_json) — добавляем
+        # новую колонку, если её ещё нет; старая images_json остаётся в
+        # таблице неиспользуемой (не мешает и не требует ручной миграции
+        # данных, старые записи всё равно были картинками, а не чертежом).
+        "ALTER TABLE ai_designs ADD COLUMN IF NOT EXISTS rooms_json TEXT NOT NULL DEFAULT '[]'",
     ]
     for stmt in migrations:
         conn.execute(stmt)
@@ -2024,19 +2044,18 @@ def order_to_json(conn, row):
 
 def ai_design_to_json(row):
     try:
-        images = json.loads(row['images_json'] or '[]')
+        rooms = json.loads(row['rooms_json'] or '[]')
     except json.JSONDecodeError:
-        images = []
+        rooms = []
     return {
         'id': row['id'],
         'prompt': row['prompt'],
         'status': row['status'],
-        'images': images,
+        # Список комнат с площадью — построен Claude по тексту клиента.
+        # Фронт рисует по нему SVG-чертёж (renderFloorPlanSVG в index.html).
+        'rooms': rooms,
         'error': row['error'],
         'created_at': row['created_at'],
-        # Нужны фронту, чтобы посчитать точный SVG-план этажа (см.
-        # buildFloorPlan() в index.html) — как для только что созданной
-        # генерации, так и заново для каждой записи в истории.
         'size_m2': row['size_m2'],
         'bedrooms': row['bedrooms'],
     }
@@ -3035,42 +3054,23 @@ class Handler(BaseHTTPRequestHandler):
             design_id = cur.lastrowid
             conn.commit()
 
-            images = []
-            first_error = None
+            rooms = []
+            error = None
+            try:
+                # Claude читает ПОЛНЫЙ текст клиента (full_prompt: описание +
+                # площадь + стиль + спальни) и строит список комнат под него,
+                # а не просто площадь/число спален по жёсткой формуле.
+                rooms = generate_claude_floor_plan(full_prompt, size_m2, bedrooms)
+            except ApiError as e:
+                error = e.detail
+            except Exception as e:  # noqa: BLE001
+                print(f'[ai-design] Неожиданная ошибка генерации чертежа: {type(e).__name__}: {e}')
+                error = 'Не удалось построить чертёж, попробуйте ещё раз'
 
-            # Генерируем 3 картинки параллельно (разные ракурсы фасада) —
-            # иначе по одной последовательно это легко 30-45 секунд ожидания.
-            def _one(angle_key, angle_prompt):
-                angle_full_prompt = f'{full_prompt}. {angle_prompt}.'
-                png_bytes = generate_gemini_image(angle_full_prompt)
-                filename = f'{design_id}_{angle_key}.png'
-                with open(os.path.join(GENERATED_DIR, filename), 'wb') as f:
-                    f.write(png_bytes)
-                return {'angle': angle_key, 'path': f'/generated/{filename}'}
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-                futures = {pool.submit(_one, k, p_): k for k, p_ in AI_DESIGN_ANGLES}
-                for fut in concurrent.futures.as_completed(futures):
-                    try:
-                        images.append(fut.result())
-                    except ApiError as e:
-                        first_error = first_error or e.detail
-                    except Exception as e:  # noqa: BLE001
-                        print(f'[ai-design] Неожиданная ошибка генерации: {type(e).__name__}: {e}')
-                        first_error = first_error or 'Не удалось сгенерировать одну из картинок'
-
-            # порядок картинок должен быть стабильным (фасад/бок/перспектива),
-            # as_completed отдаёт их в случайном порядке готовности
-            order = {k: i for i, (k, _) in enumerate(AI_DESIGN_ANGLES)}
-            images.sort(key=lambda im: order.get(im['angle'], 99))
-
-            if images:
-                status = 'done' if not first_error else 'partial'
-            else:
-                status = 'failed'
+            status = 'done' if rooms else 'failed'
             conn.execute(
-                'UPDATE ai_designs SET status=%s, images_json=%s, error=%s WHERE id=%s',
-                (status, json.dumps(images, ensure_ascii=False), first_error, design_id)
+                'UPDATE ai_designs SET status=%s, rooms_json=%s, error=%s WHERE id=%s',
+                (status, json.dumps(rooms, ensure_ascii=False), error, design_id)
             )
             conn.commit()
             row = conn.execute('SELECT * FROM ai_designs WHERE id=%s', (design_id,)).fetchone()
@@ -3458,7 +3458,6 @@ def _stop_telegram_bot_subprocess():
 
 def main():
     init_db()
-    os.makedirs(GENERATED_DIR, exist_ok=True)
     # По умолчанию у стандартного http.server очередь на подключение всего 5
     # ожидающих соединений — при резком всплеске (много людей одновременно
     # открыли сайт) новые подключения могли обрываться ("Connection reset")
