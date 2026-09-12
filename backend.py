@@ -232,16 +232,164 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gjjnn05@gmail.com')
 EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'StroyAI')
 
 # ---------------------------------------------------------------------------
-# ИИ-консультант поддержки: раздел "Поддержка → Чат" (/support/chat/) отвечает
-# через Claude (Anthropic API) вместо старого поиска по ключевым словам в FAQ.
-# Нужно на Railway задать:
-#   ANTHROPIC_API_KEY=sk-ant-...  (ключ из console.anthropic.com/settings/keys)
-# Без ключа чат работает как раньше — по простому совпадению слов в FAQ,
-# сайт не падает.
+# LLM: ИИ-консультант поддержки (/support/chat/) и ИИ-Дизайн (чертёж дома).
+# Без ключа чат откатывается на старый поиск по словам в FAQ, ИИ-Дизайн
+# возвращает понятную ошибку — сайт в обоих случаях не падает.
+#
+# Провайдер настраивается переменными окружения — код не привязан к
+# одному конкретному адресу. Поддерживаются два протокола запроса:
+#
+#   LLM_PROTOCOL=anthropic   родной Anthropic Messages API  (по умолчанию)
+#                            POST {LLM_BASE_URL}/v1/messages
+#                            заголовки: x-api-key + anthropic-version
+#
+#   LLM_PROTOCOL=openai      любой OpenAI-совместимый шлюз
+#                            POST {LLM_BASE_URL}/v1/chat/completions
+#                            заголовок: Authorization: Bearer <ключ>
+#
+# LLM_BASE_URL пишется БЕЗ /v1 на конце (если написали с /v1 — он срежется
+# автоматически, это самая частая ошибка при настройке шлюзов).
+#
+# Официальный Anthropic (значения по умолчанию, ничего задавать не нужно):
+#   LLM_PROTOCOL=anthropic
+#   LLM_BASE_URL=https://api.anthropic.com
+#   ANTHROPIC_API_KEY=sk-ant-...
+#
+# Сторонний OpenAI-совместимый шлюз:
+#   LLM_PROTOCOL=openai
+#   LLM_BASE_URL=https://шлюз.example.com
+#   LLM_API_KEY=<ключ шлюза>
+#   LLM_MODEL=<имя модели ровно как в списке моделей шлюза>
 # ---------------------------------------------------------------------------
-ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
-ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001')
-ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
+LLM_PROTOCOL = os.environ.get('LLM_PROTOCOL', 'anthropic').strip().lower()
+_llm_base = os.environ.get('LLM_BASE_URL', 'https://api.anthropic.com').strip().rstrip('/')
+if _llm_base.endswith('/v1'):
+    _llm_base = _llm_base[:-3].rstrip('/')
+LLM_BASE_URL = _llm_base
+# LLM_API_KEY — новое, общее имя; ANTHROPIC_API_KEY оставлен для
+# совместимости со старыми Variables на Railway.
+ANTHROPIC_API_KEY = os.environ.get('LLM_API_KEY', '').strip() or os.environ.get('ANTHROPIC_API_KEY', '').strip()
+ANTHROPIC_MODEL = os.environ.get('LLM_MODEL', '').strip() or os.environ.get(
+    'ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001'
+).strip()
+LLM_TIMEOUT = int(os.environ.get('LLM_TIMEOUT', '60'))
+
+
+def llm_endpoint():
+    """Полный URL запроса — считается из LLM_BASE_URL и протокола."""
+    if LLM_PROTOCOL == 'openai':
+        return LLM_BASE_URL + '/v1/chat/completions'
+    return LLM_BASE_URL + '/v1/messages'
+
+
+def llm_complete(system_prompt, messages, max_tokens, timeout, tag, label):
+    """
+    Единая точка обращения к модели для всего бэкенда (ИИ-консультант и
+    ИИ-Дизайн). Собирает запрос в формате выбранного протокола, разбирает
+    ответ и возвращает ЧИСТЫЙ ТЕКСТ ответа модели.
+
+    Никаких внешних библиотек: тот же urllib, что и во всём файле. Пакет
+    `openai` ставить не нужно — его SDK делает ровно этот же HTTP-запрос.
+
+    Бросает ApiError с человекочитаемым текстом; `label` подставляется в
+    сообщение клиенту ('ИИ-консультант' / 'ИИ-Дизайн'), `tag` — префикс в
+    логах Railway.
+    """
+    if not ANTHROPIC_API_KEY:
+        raise ApiError(503, f'{label} временно недоступен: на сервере не задан ключ (LLM_API_KEY).')
+
+    url = llm_endpoint()
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        # Явный User-Agent: у urllib по умолчанию 'Python-urllib/3.x', который
+        # некоторые шлюзы режут. Подставлять сюда строку браузера (Mozilla/5.0...)
+        # не нужно — сервис, которому это требуется, фильтрует не ботов, а
+        # обходит чужую защиту.
+        'User-Agent': 'StroyAI/1.0',
+    }
+
+    if LLM_PROTOCOL == 'openai':
+        # В OpenAI-протоколе системный промпт — это первое сообщение с ролью
+        # system, отдельного поля 'system' нет.
+        body = {
+            'model': ANTHROPIC_MODEL,
+            'max_tokens': max_tokens,
+            'messages': [{'role': 'system', 'content': system_prompt}] + list(messages),
+        }
+        headers['Authorization'] = 'Bearer ' + ANTHROPIC_API_KEY
+    else:
+        body = {
+            'model': ANTHROPIC_MODEL,
+            'max_tokens': max_tokens,
+            'system': system_prompt,
+            'messages': list(messages),
+        }
+        headers['x-api-key'] = ANTHROPIC_API_KEY
+        headers['anthropic-version'] = '2023-06-01'
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
+        method='POST',
+        headers=headers,
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        detail = ''
+        try:
+            detail = e.read().decode('utf-8', 'replace')[:600]
+        except Exception:  # noqa: BLE001
+            pass
+        print(f'{tag} {url} вернул HTTP {e.code}: {detail}')
+        if e.code in (401, 403):
+            raise ApiError(502, f'{label}: ключ отклонён провайдером ({LLM_BASE_URL}) — неверный или отозванный.')
+        if e.code == 404:
+            raise ApiError(502, f'{label}: адрес {url} не найден — проверьте LLM_BASE_URL и LLM_PROTOCOL.')
+        if e.code == 429:
+            raise ApiError(429, f'{label}: превышен лимит запросов, попробуйте позже.')
+        if e.code == 402:
+            raise ApiError(502, f'{label}: у провайдера закончился баланс.')
+        raise ApiError(502, f'{label}: провайдер вернул ошибку HTTP {e.code}.')
+    except (urllib.error.URLError, OSError) as e:
+        print(f'{tag} сеть недоступна при обращении к {url} ({type(e).__name__}): {e}')
+        raise ApiError(502, f'{label}: не удалось связаться с провайдером ({LLM_BASE_URL}).')
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Типичный симптом неправильного LLM_BASE_URL: вместо JSON приходит
+        # HTML-страница («<!DOCTYPE html>...») — это значит, что запрос ушёл
+        # не на API, а на обычную веб-страницу сервиса.
+        print(f'{tag} {url} вернул не-JSON: {raw[:300]}')
+        raise ApiError(502, f'{label}: провайдер вернул не JSON — вероятно, LLM_BASE_URL указывает не на API.')
+
+    # Многие OpenAI-совместимые шлюзы отдают ошибку с кодом 200 и полем error.
+    if isinstance(data, dict) and data.get('error'):
+        err = data['error']
+        msg = err.get('message') if isinstance(err, dict) else str(err)
+        print(f'{tag} провайдер вернул ошибку в теле ответа: {msg}')
+        raise ApiError(502, f'{label}: провайдер вернул ошибку — {msg}')
+
+    text = ''
+    try:
+        if LLM_PROTOCOL == 'openai':
+            text = (data['choices'][0]['message'].get('content') or '').strip()
+        else:
+            text = '\n'.join(
+                b['text'] for b in data.get('content', []) if b.get('type') == 'text'
+            ).strip()
+    except (KeyError, IndexError, TypeError, AttributeError):
+        print(f'{tag} неожиданная структура ответа: {raw[:400]}')
+        raise ApiError(502, f'{label}: провайдер вернул ответ в неожиданном формате.')
+
+    if not text:
+        print(f'{tag} пустой ответ модели: {raw[:400]}')
+        raise ApiError(502, f'{label}: провайдер вернул пустой ответ.')
+    return text
 
 
 def ask_claude_support(conn, user_message, history=None):
@@ -252,9 +400,6 @@ def ask_claude_support(conn, user_message, history=None):
     Бросает ApiError, если ключ не настроен или Anthropic отказал — вызывающий
     код в этом случае откатывается на старый keyword-поиск по FAQ.
     """
-    if not ANTHROPIC_API_KEY:
-        raise ApiError(503, 'ИИ-консультант временно недоступен: не настроен ANTHROPIC_API_KEY на сервере.')
-
     faqs = conn.execute('SELECT question, answer FROM faq ORDER BY id').fetchall()
     faq_text = '\n'.join(f'В: {f["question"]}\nО: {f["answer"]}' for f in faqs) or '(FAQ пока пуст)'
 
@@ -275,52 +420,14 @@ def ask_claude_support(conn, user_message, history=None):
     messages = list(history or [])
     messages.append({'role': 'user', 'content': user_message})
 
-    payload = json.dumps({
-        'model': ANTHROPIC_MODEL,
-        'max_tokens': 400,
-        'system': system_prompt,
-        'messages': messages,
-    }).encode('utf-8')
-
-    req = urllib.request.Request(
-        ANTHROPIC_API_URL,
-        data=payload,
-        method='POST',
-        headers={
-            'Content-Type': 'application/json',
-            'x-api-key': ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
-        },
+    return llm_complete(
+        system_prompt=system_prompt,
+        messages=messages,
+        max_tokens=400,
+        timeout=min(LLM_TIMEOUT, 30),
+        tag='[support-chat]',
+        label='ИИ-консультант',
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-    except urllib.error.HTTPError as e:
-        body = ''
-        try:
-            body = e.read().decode('utf-8', 'replace')
-        except Exception:  # noqa: BLE001
-            pass
-        print(f'[support-chat] Claude отказал (HTTP {e.code}): {body}')
-        if e.code in (401, 403):
-            raise ApiError(502, 'ИИ-консультант: неверный или отозванный ANTHROPIC_API_KEY.')
-        if e.code == 429:
-            raise ApiError(429, 'ИИ-консультант: превышен лимит запросов, попробуйте позже.')
-        raise ApiError(502, 'ИИ-консультант: сервис временно вернул ошибку.')
-    except (urllib.error.URLError, OSError) as e:
-        print(f'[support-chat] Сеть недоступна ({type(e).__name__}): {e}')
-        raise ApiError(502, 'ИИ-консультант: не удалось связаться с сервисом.')
-
-    try:
-        parts = [b['text'] for b in data['content'] if b.get('type') == 'text']
-        reply = '\n'.join(parts).strip()
-        if not reply:
-            raise ApiError(502, 'ИИ-консультант: сервис не вернул ответ.')
-    except ApiError:
-        raise
-    except (KeyError, IndexError, TypeError):
-        raise ApiError(502, 'ИИ-консультант: сервис вернул неожиданный ответ.')
-    return reply
 
 
 # ---------------------------------------------------------------------------
@@ -378,9 +485,6 @@ def generate_claude_floor_plan(full_prompt, size_m2, bedrooms):
     сходится с общей площадью дома — бросаем ApiError, чтобы не показать
     клиенту чертёж с неверными цифрами.
     """
-    if not ANTHROPIC_API_KEY:
-        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен ANTHROPIC_API_KEY на сервере.')
-
     size_hint = f'Общая площадь дома: {size_m2:g} м². Сумма площадей всех комнат должна быть равна {size_m2:g} м² (допустима погрешность не больше 3%).' if size_m2 else (
         'Площадь дома клиент не указал — оцени разумную общую площадь сам исходя из описания и количества комнат.'
     )
@@ -402,46 +506,14 @@ def generate_claude_floor_plan(full_prompt, size_m2, bedrooms):
         '8-20, санузел 3-8, гостиная 16-40).'
     )
 
-    payload = json.dumps({
-        'model': ANTHROPIC_MODEL,
-        'max_tokens': 1000,
-        'system': system_prompt,
-        'messages': [{'role': 'user', 'content': full_prompt}],
-    }).encode('utf-8')
-
-    req = urllib.request.Request(
-        ANTHROPIC_API_URL,
-        data=payload,
-        method='POST',
-        headers={
-            'Content-Type': 'application/json',
-            'x-api-key': ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
-        },
+    raw_text = llm_complete(
+        system_prompt=system_prompt,
+        messages=[{'role': 'user', 'content': full_prompt}],
+        max_tokens=1000,
+        timeout=LLM_TIMEOUT,
+        tag='[ai-design]',
+        label='ИИ-Дизайн',
     )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-    except urllib.error.HTTPError as e:
-        body = ''
-        try:
-            body = e.read().decode('utf-8', 'replace')
-        except Exception:  # noqa: BLE001
-            pass
-        print(f'[ai-design] Claude отказал (HTTP {e.code}): {body}')
-        if e.code in (401, 403):
-            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный ANTHROPIC_API_KEY.')
-        if e.code == 429:
-            raise ApiError(429, 'ИИ-Дизайн: превышен лимит запросов, попробуйте позже.')
-        raise ApiError(502, 'ИИ-Дизайн: сервис вернул ошибку, попробуйте другой запрос.')
-    except (urllib.error.URLError, OSError) as e:
-        print(f'[ai-design] Сеть недоступна ({type(e).__name__}): {e}')
-        raise ApiError(502, 'ИИ-Дизайн: не удалось связаться с сервисом.')
-
-    try:
-        raw_text = '\n'.join(b['text'] for b in data['content'] if b.get('type') == 'text').strip()
-    except (KeyError, IndexError, TypeError):
-        raise ApiError(502, 'ИИ-Дизайн: сервис вернул неожиданный ответ.')
 
     # На случай если модель всё же обернёт JSON в ```json ... ``` — снимаем
     # обёртку перед парсингом, но саму структуру разбираем строго через
@@ -3486,6 +3558,12 @@ def main():
     else:
         print('Email OTP: НЕ настроен (нет BREVO_API_KEY/EMAIL_HOST_USER) — коды печатаются в консоль.')
     print('Коды подтверждения (OTP) в любом случае дублируются прямо сюда, в консоль, если письмо не ушло.')
+    if ANTHROPIC_API_KEY:
+        print(f'LLM: протокол {LLM_PROTOCOL}, endpoint {llm_endpoint()}, модель {ANTHROPIC_MODEL}, '
+              f'ключ …{ANTHROPIC_API_KEY[-4:]}')
+        print('     Проверить связь с провайдером: python check_llm.py')
+    else:
+        print('LLM: ключ не задан (LLM_API_KEY) — ИИ-консультант работает по FAQ, ИИ-Дизайн отключён.')
     print('-' * 60)
     atexit.register(_stop_telegram_bot_subprocess)
     _start_telegram_bot_subprocess()
