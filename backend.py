@@ -3417,6 +3417,24 @@ class Handler(BaseHTTPRequestHandler):
                 conn.commit()
                 return {'detail': 'ok'}
 
+            # Список товаров для вкладки «Финансы → Цены»: закупочная цена,
+            # цена продажи и завод. `sell_price` во фронте — это base_price в
+            # базе (цена без наценки за доставку), отдельной колонки
+            # sell_price у products нет.
+            if p == '/admin/finance/products/' and method == 'GET':
+                rows = conn.execute(
+                    'SELECT p.id, p.name, p.base_price, p.buy_price, f.name AS factory_name '
+                    'FROM products p LEFT JOIN factories f ON f.id = p.factory_id '
+                    'ORDER BY f.name NULLS FIRST, p.name'
+                ).fetchall()
+                return [{
+                    'id': r['id'],
+                    'name': r['name'],
+                    'factory_name': r['factory_name'],
+                    'sell_price': r['base_price'],
+                    'buy_price': r['buy_price'],
+                } for r in rows]
+
             m = re.match(r'^/admin/finance/products/(\d+)/$', p)
             if m and method == 'POST':
                 product = conn.execute('SELECT * FROM products WHERE id=%s', (m.group(1),)).fetchone()
