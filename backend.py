@@ -26,6 +26,7 @@ import atexit
 import base64
 import io
 import collections
+import concurrent.futures
 import threading
 import time
 import urllib.request
@@ -233,14 +234,20 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gjjnn05@gmail.com')
 EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'StroyAI')
 
 # ---------------------------------------------------------------------------
-# ИИ-Дизайн: чертёж фасада строится локально, без внешних ИИ-сервисов.
-# Промт клиента разбирается по ключевым словам (этажность, тип крыши,
-# размер окон, материал/цвет стен, гараж/терраса/балкон) в parse_house_prompt()
-# — результат это структурированный "spec", по которому фронт (index.html,
-# renderFacadeSVG) рисует технический чертёж фасада SVG-примитивами.
-# Никаких платных API, лимитов и ошибок вида "превышен лимит запросов" —
-# генерация мгновенная и всегда успешна.
+# ИИ-Дизайн: генерация 3 фотореалистичных ракурсов дома через Google Gemini
+# (модель gemini-3.1-flash-image-preview, она же "Nano Banana 2") по
+# текстовому описанию клиента — без промежуточных шагов (без "улучшения"
+# промпта другой моделью и без отдельного чертежа фасада — просто и
+# предсказуемо: что описал клиент, то и рисуем в трёх ракурсах).
+# Нужно на Railway задать:
+#   GEMINI_API_KEY=AIza...   (получить в Google AI Studio: aistudio.google.com/apikey)
+# Без ключа раздел ИИ-Дизайна возвращает понятную ошибку вместо падения.
+# У Gemini есть бесплатный лимит запросов в день — для старта хватает, при
+# росте нагрузки нужно включить платный биллинг в Google Cloud.
 # ---------------------------------------------------------------------------
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_IMAGE_MODEL = os.environ.get('GEMINI_IMAGE_MODEL', 'gemini-3.1-flash-image-preview')
+GEMINI_GENERATE_URL = f'https://generativelanguage.googleapis.com/v1beta/models/{{model}}:generateContent'
 
 # Стили, которые можно выбрать в дропдауне на фронте (см. index.html,
 # #aiDesignStyle) — ключ должен совпадать со значением <option value="...">.
@@ -252,6 +259,11 @@ AI_DESIGN_STYLE_LABELS = {
     'hightech': 'хай-тек (стекло, металл, современные геометрические формы, минимум декора)',
     'modern': 'современный стиль (лаконичный фасад, панорамные окна, плоская или пологая крыша)',
 }
+# Сколько раз в сутки один пользователь может запускать генерацию —
+# каждый запуск это 4 платных вызова OpenAI, ограничиваем, чтобы никто
+# случайно (или специально) не «съел» весь бюджет за один вечер.
+AI_DESIGN_DAILY_LIMIT = int(os.environ.get('AI_DESIGN_DAILY_LIMIT', '3'))
+GENERATED_DIR = os.path.join(BASE_DIR, 'generated')
 
 # ---------------------------------------------------------------------------
 # CORS: раньше Access-Control-Allow-Origin был '*' — API отвечало вообще
@@ -268,129 +280,86 @@ ALLOWED_ORIGINS = set(
     o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS', _default_origins).split(',') if o.strip()
 )
 
-
-# ---------------------------------------------------------------------------
-# Разбор промта клиента по ключевым словам (русский текст) в структурированный
-# "spec" — этажность, тип крыши, размер окон, материал/цвет стен, наличие
-# гаража/террасы/балкона. Никакого внешнего ИИ: простой, предсказуемый и
-# бесплатный разбор текста. Фронт (renderFacadeSVG в index.html) рисует по
-# этому spec схематичный чертёж фасада.
-# ---------------------------------------------------------------------------
-
-# Материал/цвет стен по умолчанию для каждого стиля — используется, если
-# клиент явно не написал материал словами (кирпич/дерево/камень/штукатурка).
-_STYLE_WALL_DEFAULTS = {
-    'scandi':   ('plaster', '#f4efe6'),
-    'minimal':  ('plaster', '#eceff1'),
-    'classic':  ('brick',   '#c9a27a'),
-    'loft':     ('brick',   '#8a5a44'),
-    'hightech': ('glass',   '#c7ced4'),
-    'modern':   ('plaster', '#e4e2dc'),
-}
-# Тип крыши по умолчанию для стиля, если явно не указан в тексте.
-_STYLE_ROOF_DEFAULTS = {
-    'scandi': 'gable', 'minimal': 'flat', 'classic': 'gable',
-    'loft': 'flat', 'hightech': 'flat', 'modern': 'flat',
-}
+# Каждый элемент: (ключ_ракурса, подпись для промпта). Подпись добавляется
+# К промпту пользователя, а не заменяет его — так по одному описанию дома
+# получается небольшой, но цельный комплект картинок.
+# Ракурс "plan" (эскиз планировки) сюда специально НЕ включён: генеративная
+# картинка не может гарантировать точные размеры комнат, а пользователю
+# нужен именно точный план — он считается формулой в build_floor_plan() и
+# рисуется на фронте как SVG, а не генерируется ИИ.
+AI_DESIGN_ANGLES = [
+    ('front', 'Фасад дома спереди, вид с улицы, реалистичное фото, дневной свет'),
+    ('side', 'Тот же дом, вид сбоку (с торца), реалистичное фото, дневной свет'),
+    ('perspective', 'Тот же дом, вид с угла в три четверти, реалистичное фото, дневной свет'),
+]
 
 
-def parse_house_prompt(text, style_key=None):
+def generate_gemini_image(prompt):
     """
-    Разбирает свободный текст клиента (плюс выбранный стиль из дропдауна)
-    по ключевым словам и возвращает spec для отрисовки чертежа фасада:
-        floors        — 1, 2 или 3
-        roof          — 'gable' (скатная) | 'hip' (вальмовая) | 'flat' (плоская)
-        window_size   — 'small' | 'medium' | 'large' | 'panoramic'
-        wall_material — 'brick' | 'plaster' | 'wood' | 'stone' | 'glass'
-        wall_color    — hex-цвет стен
-        garage        — bool
-        terrace       — bool
-        balcony       — bool
-        style         — исходный style_key (может быть None)
-    Понимает, что написал клиент, но никогда не падает: на любой текст
-    возвращает разумные значения по умолчанию.
+    Один вызов Gemini generateContent с модальностью IMAGE по текстовому
+    промпту. Возвращает bytes картинки (PNG). Бросает ApiError с понятным
+    текстом, если ключ не настроен или API отказал (неверный ключ, лимит
+    исчерпан, сработал фильтр безопасности и т.п.) — чтобы пользователь
+    увидел причину, а не просто "ошибка".
     """
-    t = (text or '').lower()
+    if not GEMINI_API_KEY:
+        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен GEMINI_API_KEY на сервере.')
 
-    # --- этажность ---------------------------------------------------
-    floors = 1
-    m = re.search(r'(\d+)\s*[- ]?\s*этаж', t)
-    if m:
-        floors = max(1, min(3, int(m.group(1))))
-    elif any(w in t for w in ('двухэтаж', 'двуxэтаж', 'два этажа', '2 этажа')):
-        floors = 2
-    elif any(w in t for w in ('трёхэтаж', 'трехэтаж', 'три этажа', '3 этажа')):
-        floors = 3
-    elif any(w in t for w in ('одноэтаж', 'один этаж', '1 этаж')):
-        floors = 1
+    payload = json.dumps({
+        'contents': [{'parts': [{'text': prompt}]}],
+        'generationConfig': {'responseModalities': ['TEXT', 'IMAGE']},
+    }).encode('utf-8')
 
-    # --- крыша ---------------------------------------------------------
-    if 'плоск' in t and 'крыш' in t:
-        roof = 'flat'
-    elif 'вальмов' in t:
-        roof = 'hip'
-    elif any(w in t for w in ('четырёхскат', 'четырехскат')):
-        roof = 'hip'
-    elif any(w in t for w in ('двускат', 'скатн', 'скатная')):
-        roof = 'gable'
-    else:
-        roof = _STYLE_ROOF_DEFAULTS.get(style_key, 'gable')
+    url = GEMINI_GENERATE_URL.format(model=GEMINI_IMAGE_MODEL)
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method='POST',
+        headers={
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY,
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        body = ''
+        try:
+            body = e.read().decode('utf-8', 'replace')
+        except Exception:  # noqa: BLE001
+            pass
+        print(f'[ai-design] Gemini отказал (HTTP {e.code}): {body}')
+        if e.code in (401, 403):
+            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный GEMINI_API_KEY.')
+        if e.code == 429:
+            raise ApiError(429, 'ИИ-Дизайн: превышен дневной лимит запросов у Gemini, попробуйте позже.')
+        raise ApiError(502, 'ИИ-Дизайн: сервис генерации изображений вернул ошибку, попробуйте другой запрос.')
+    except (urllib.error.URLError, OSError) as e:
+        print(f'[ai-design] Сеть недоступна ({type(e).__name__}): {e}')
+        raise ApiError(502, 'ИИ-Дизайн: не удалось связаться с сервисом генерации изображений.')
 
-    # --- окна ------------------------------------------------------------
-    if 'панорамн' in t:
-        window_size = 'panoramic'
-    elif ('больш' in t or 'широк' in t) and 'окн' in t:
-        window_size = 'large'
-    elif ('маленьк' in t or 'небольш' in t) and 'окн' in t:
-        window_size = 'small'
-    elif style_key in ('modern', 'hightech'):
-        window_size = 'large'
-    else:
-        window_size = 'medium'
+    try:
+        candidate = data['candidates'][0]
+        # блокировка safety-фильтром — обычная (не HTTP-)ошибка, у неё
+        # просто нет частей с картинкой в ответе
+        if candidate.get('finishReason') == 'SAFETY':
+            raise ApiError(422, 'ИИ-Дизайн: запрос отклонён фильтром безопасности, переформулируйте описание.')
+        image_b64 = None
+        for part in candidate['content']['parts']:
+            inline = part.get('inlineData') or part.get('inline_data')
+            if inline and inline.get('data'):
+                image_b64 = inline['data']
+                break
+        if not image_b64:
+            raise ApiError(502, 'ИИ-Дизайн: сервис не вернул картинку, попробуйте другой запрос.')
+    except ApiError:
+        raise
+    except (KeyError, IndexError, TypeError):
+        raise ApiError(502, 'ИИ-Дизайн: сервис генерации вернул неожиданный ответ.')
+    return base64.b64decode(image_b64)
 
-    # --- материал / цвет стен --------------------------------------------
-    wall_material, wall_color = _STYLE_WALL_DEFAULTS.get(style_key, ('plaster', '#e9e4da'))
-    if 'кирпич' in t:
-        wall_material = 'brick'
-        if 'бел' in t:
-            wall_color = '#e5ddd0'
-        elif 'светл' in t:
-            wall_color = '#c9a27a'
-        else:
-            wall_color = '#a9583f'
-    elif any(w in t for w in ('дерев', 'брус', 'сруб', 'бревн')):
-        wall_material = 'wood'
-        wall_color = '#8a6240'
-    elif any(w in t for w in ('камен', 'камн')):
-        wall_material = 'stone'
-        wall_color = '#9a968f'
-    elif 'стекл' in t and style_key != 'hightech':
-        wall_material = 'glass'
-        wall_color = '#c7ced4'
-    elif 'тёмн' in t or 'темн' in t:
-        wall_material = 'plaster'
-        wall_color = '#4a4a4d'
-    elif 'бел' in t:
-        wall_material = 'plaster'
-        wall_color = '#f2f0eb'
-    elif 'сер' in t:
-        wall_material = 'plaster'
-        wall_color = '#c6c6c2'
-    elif 'светл' in t:
-        wall_material = 'plaster'
-        wall_color = '#efe9dd'
 
-    return {
-        'floors': floors,
-        'roof': roof,
-        'window_size': window_size,
-        'wall_material': wall_material,
-        'wall_color': wall_color,
-        'garage': 'гараж' in t,
-        'terrace': 'террас' in t,
-        'balcony': 'балкон' in t,
-        'style': style_key,
-    }
 STATUS_LABELS = {
     'processing': 'В обработке',
     'materials_delivered': 'Материалы доставлены',
@@ -765,12 +734,12 @@ SCHEMA_STATEMENTS = [
         amount DOUBLE PRECISION,
         created_at TEXT NOT NULL
     )''',
-    # Одна строка = один запуск ИИ-дизайна: промт клиента разбирается по
-    # ключевым словам локально (parse_house_prompt) в spec_json, по которому
-    # фронт рисует SVG-чертёж фасада. status всегда 'done' (генерация
-    # мгновенная, никаких внешних сервисов). images_json оставлен в схеме
-    # для совместимости со старыми записями (генерациями через OpenAI),
-    # новые записи его не используют.
+    # Одна строка = один запуск ИИ-дизайна (по одному промпту пользователя
+    # генерируется сразу несколько картинок — разные ракурсы фасада плюс
+    # эскиз планировки). images_json — список объектов
+    # {"angle": "...", "path": "/generated/..png"}. status: pending /
+    # done / failed. error — текст ошибки, если что-то не получилось
+    # (чтобы показать пользователю, а не просто "ничего не произошло").
     '''CREATE TABLE IF NOT EXISTS ai_designs(
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -847,8 +816,6 @@ def init_db():
         # момент создания.
         "ALTER TABLE ai_designs ADD COLUMN IF NOT EXISTS size_m2 DOUBLE PRECISION",
         "ALTER TABLE ai_designs ADD COLUMN IF NOT EXISTS bedrooms INTEGER",
-        # --- цепочка ИИ-Дизайна: локальный разбор промта -> чертёж SVG (без внешних ИИ) ---
-        "ALTER TABLE ai_designs ADD COLUMN IF NOT EXISTS spec_json TEXT",
     ]
     for stmt in migrations:
         conn.execute(stmt)
@@ -1965,13 +1932,14 @@ def order_to_json(conn, row):
 
 def ai_design_to_json(row):
     try:
-        spec = json.loads(row['spec_json']) if row['spec_json'] else None
+        images = json.loads(row['images_json'] or '[]')
     except json.JSONDecodeError:
-        spec = None
+        images = []
     return {
         'id': row['id'],
         'prompt': row['prompt'],
         'status': row['status'],
+        'images': images,
         'error': row['error'],
         'created_at': row['created_at'],
         # Нужны фронту, чтобы посчитать точный SVG-план этажа (см.
@@ -1979,10 +1947,6 @@ def ai_design_to_json(row):
         # генерации, так и заново для каждой записи в истории.
         'size_m2': row['size_m2'],
         'bedrooms': row['bedrooms'],
-        # Разобранные по промту параметры дома (этажность, крыша, окна,
-        # материал стен, гараж/терраса/балкон) — по ним фронт рисует
-        # SVG-чертёж фасада (renderFacadeSVG), см. parse_house_prompt().
-        'spec': spec,
     }
 
 
@@ -2936,17 +2900,65 @@ class Handler(BaseHTTPRequestHandler):
             if bedrooms:
                 full_prompt += f'. Количество спален: {bedrooms}.'
 
-            # Разбираем промт клиента (плюс стиль) по ключевым словам в spec —
-            # локально, без внешних ИИ-сервисов, мгновенно и без лимитов.
-            spec = parse_house_prompt(full_prompt, style_key or None)
+            today_start = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            # В лимит считаются только попытки, где хоть что-то реально
+            # сгенерировалось (done/partial) — полностью упавшие из-за
+            # ненастроенного/неверного ключа (status='failed') квоту не
+            # тратят, иначе пользователь теряет попытки на пустом месте.
+            used_today = conn.execute(
+                "SELECT COUNT(*) AS c FROM ai_designs "
+                "WHERE user_id=%s AND created_at >= %s AND status IN ('done','partial')",
+                (user['id'], today_start)
+            ).fetchone()['c']
+            if used_today >= AI_DESIGN_DAILY_LIMIT:
+                raise ApiError(429, f'Дневной лимит ИИ-Дизайна исчерпан ({AI_DESIGN_DAILY_LIMIT} в сутки). Попробуйте завтра.')
 
             created_at = now_iso()
             cur = conn.execute(
-                "INSERT INTO ai_designs(user_id, prompt, status, created_at, size_m2, bedrooms, spec_json) "
-                "VALUES(%s,%s,'done',%s,%s,%s,%s)",
-                (user['id'], full_prompt, created_at, size_m2, bedrooms, json.dumps(spec, ensure_ascii=False))
+                "INSERT INTO ai_designs(user_id, prompt, status, created_at, size_m2, bedrooms) "
+                "VALUES(%s,%s,'pending',%s,%s,%s)",
+                (user['id'], full_prompt, created_at, size_m2, bedrooms)
             )
             design_id = cur.lastrowid
+            conn.commit()
+
+            images = []
+            first_error = None
+
+            # Генерируем 3 картинки параллельно (разные ракурсы фасада) —
+            # иначе по одной последовательно это легко 30-45 секунд ожидания.
+            def _one(angle_key, angle_prompt):
+                angle_full_prompt = f'{full_prompt}. {angle_prompt}.'
+                png_bytes = generate_gemini_image(angle_full_prompt)
+                filename = f'{design_id}_{angle_key}.png'
+                with open(os.path.join(GENERATED_DIR, filename), 'wb') as f:
+                    f.write(png_bytes)
+                return {'angle': angle_key, 'path': f'/generated/{filename}'}
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                futures = {pool.submit(_one, k, p_): k for k, p_ in AI_DESIGN_ANGLES}
+                for fut in concurrent.futures.as_completed(futures):
+                    try:
+                        images.append(fut.result())
+                    except ApiError as e:
+                        first_error = first_error or e.detail
+                    except Exception as e:  # noqa: BLE001
+                        print(f'[ai-design] Неожиданная ошибка генерации: {type(e).__name__}: {e}')
+                        first_error = first_error or 'Не удалось сгенерировать одну из картинок'
+
+            # порядок картинок должен быть стабильным (фасад/бок/перспектива),
+            # as_completed отдаёт их в случайном порядке готовности
+            order = {k: i for i, (k, _) in enumerate(AI_DESIGN_ANGLES)}
+            images.sort(key=lambda im: order.get(im['angle'], 99))
+
+            if images:
+                status = 'done' if not first_error else 'partial'
+            else:
+                status = 'failed'
+            conn.execute(
+                'UPDATE ai_designs SET status=%s, images_json=%s, error=%s WHERE id=%s',
+                (status, json.dumps(images, ensure_ascii=False), first_error, design_id)
+            )
             conn.commit()
             row = conn.execute('SELECT * FROM ai_designs WHERE id=%s', (design_id,)).fetchone()
             return ai_design_to_json(row)
@@ -3333,6 +3345,7 @@ def _stop_telegram_bot_subprocess():
 
 def main():
     init_db()
+    os.makedirs(GENERATED_DIR, exist_ok=True)
     # По умолчанию у стандартного http.server очередь на подключение всего 5
     # ожидающих соединений — при резком всплеске (много людей одновременно
     # открыли сайт) новые подключения могли обрываться ("Connection reset")
