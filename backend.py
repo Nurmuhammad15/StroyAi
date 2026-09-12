@@ -235,20 +235,25 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gjjnn05@gmail.com')
 EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'StroyAI')
 
 # ---------------------------------------------------------------------------
-# ИИ-Дизайн: по текстовому промпту пользователя генерируем через OpenAI
-# Images API (модель gpt-image-1) несколько картинок дома — с разных
-# ракурсов + отдельно эскиз планировки (НЕ настоящий чертёж со размерами,
-# просто иллюстрация «как может выглядеть» — так и подписываем на сайте).
+# ИИ-Дизайн: по текстовому промпту пользователя генерируем через Google
+# Gemini API (модель gemini-3.1-flash-image, она же "Nano Banana 2")
+# несколько картинок дома — с разных ракурсов + отдельно эскиз планировки
+# (НЕ настоящий чертёж со размерами, просто иллюстрация «как может
+# выглядеть» — так и подписываем на сайте). Если пользователь приложил
+# референс-фото участка/дома — оно передаётся модели вместе с промптом
+# (Gemini понимает картинку+текст в одном запросе, отдельного "edit"
+# эндпоинта как у OpenAI тут не нужно).
 # Нужно на Railway задать:
-#   OPENAI_API_KEY=sk-...
+#   GEMINI_API_KEY=AIza...   (получить в Google AI Studio: aistudio.google.com/apikey)
 # Без ключа раздел ИИ-Дизайна возвращает понятную ошибку вместо падения.
+# У Gemini есть бесплатный лимит запросов в день — для старта хватает,
+# при росте нагрузки нужно будет включить платный биллинг в Google Cloud.
 # ---------------------------------------------------------------------------
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
-OPENAI_IMAGE_MODEL = os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-1')
-OPENAI_IMAGES_URL = 'https://api.openai.com/v1/images/generations'
-OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits'
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_IMAGE_MODEL = os.environ.get('GEMINI_IMAGE_MODEL', 'gemini-3.1-flash-image-preview')
+GEMINI_GENERATE_URL = f'https://generativelanguage.googleapis.com/v1beta/models/{{model}}:generateContent'
 # Референс-фото от пользователя (участок / существующий дом) — ограничение
-# на размер декодированного файла, чтобы не гонять гигантские фото в OpenAI
+# на размер декодированного файла, чтобы не гонять гигантские фото в API
 # и не давать положить сервер огромным телом запроса.
 AI_DESIGN_MAX_PHOTO_BYTES = 6 * 1024 * 1024
 
@@ -286,123 +291,93 @@ ALLOWED_ORIGINS = set(
 # Каждый элемент: (ключ_ракурса, подпись для промпта). Подпись добавляется
 # К промпту пользователя, а не заменяет его — так по одному описанию дома
 # получается небольшой, но цельный комплект картинок.
+# Ракурс "plan" (эскиз планировки) сюда специально НЕ включён: генеративная
+# картинка не может гарантировать точные размеры комнат, а пользователю
+# нужен именно точный план — он считается формулой в build_floor_plan() и
+# рисуется на фронте как SVG, а не генерируется ИИ.
 AI_DESIGN_ANGLES = [
     ('front', 'Фасад дома спереди, вид с улицы, реалистичное фото, дневной свет'),
     ('side', 'Тот же дом, вид сбоку (с торца), реалистичное фото, дневной свет'),
     ('perspective', 'Тот же дом, вид с угла в три четверти, реалистичное фото, дневной свет'),
-    ('plan', 'Схематичный эскиз плана этажа этого дома сверху, простая чёрно-белая '
-             'архитектурная иллюстрация с расстановкой комнат (НЕ фото, стиль плана '
-             'помещения, без точных размеров)'),
 ]
 
 
-def _openai_images_call(req):
+def generate_gemini_image(prompt, reference_png_bytes=None):
     """
-    Общая часть вызова OpenAI Images API (generations ИЛИ edits) — отправка
-    запроса и разбор ошибок. Возвращает распарсенный JSON-ответ.
+    Один вызов Gemini generateContent с модальностью IMAGE. Если передано
+    reference_png_bytes — референс-фото добавляется в тот же запрос как
+    inline_data, и модель генерирует "по мотивам" него; отдельного
+    edit-эндпоинта, как у OpenAI, у Gemini нет — это один и тот же вызов.
+    Возвращает bytes картинки (PNG). Бросает ApiError с понятным текстом,
+    если ключ не настроен или API отказал (неверный ключ, лимит исчерпан,
+    сработал фильтр безопасности и т.п.) — чтобы пользователь увидел
+    причину, а не просто "ошибка".
     """
+    if not GEMINI_API_KEY:
+        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен GEMINI_API_KEY на сервере.')
+
+    parts = [{'text': prompt}]
+    if reference_png_bytes is not None:
+        parts.append({
+            'inline_data': {
+                'mime_type': 'image/png',
+                'data': base64.b64encode(reference_png_bytes).decode('ascii'),
+            }
+        })
+
+    payload = json.dumps({
+        'contents': [{'parts': parts}],
+        'generationConfig': {'responseModalities': ['TEXT', 'IMAGE']},
+    }).encode('utf-8')
+
+    url = GEMINI_GENERATE_URL.format(model=GEMINI_IMAGE_MODEL)
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method='POST',
+        headers={
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY,
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=90) as resp:
-            return json.loads(resp.read().decode('utf-8'))
+            data = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
         body = ''
         try:
             body = e.read().decode('utf-8', 'replace')
         except Exception:  # noqa: BLE001
             pass
-        print(f'[ai-design] OpenAI отказал (HTTP {e.code}): {body}')
-        if e.code == 401:
-            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный OPENAI_API_KEY.')
+        print(f'[ai-design] Gemini отказал (HTTP {e.code}): {body}')
+        if e.code in (401, 403):
+            raise ApiError(502, 'ИИ-Дизайн: неверный или отозванный GEMINI_API_KEY.')
         if e.code == 429:
-            raise ApiError(429, 'ИИ-Дизайн: превышен лимит запросов/бюджет у OpenAI, попробуйте позже.')
+            raise ApiError(429, 'ИИ-Дизайн: превышен дневной лимит запросов у Gemini, попробуйте позже.')
         raise ApiError(502, 'ИИ-Дизайн: сервис генерации изображений вернул ошибку, попробуйте другой запрос.')
     except (urllib.error.URLError, OSError) as e:
         print(f'[ai-design] Сеть недоступна ({type(e).__name__}): {e}')
         raise ApiError(502, 'ИИ-Дизайн: не удалось связаться с сервисом генерации изображений.')
 
-
-def _openai_images_extract(data):
     try:
-        b64 = data['data'][0]['b64_json']
+        candidate = data['candidates'][0]
+        # блокировка safety-фильтром — обычная (не HTTP-)ошибка, у неё
+        # просто нет частей с картинкой в ответе
+        if candidate.get('finishReason') == 'SAFETY':
+            raise ApiError(422, 'ИИ-Дизайн: запрос отклонён фильтром безопасности, переформулируйте описание.')
+        image_b64 = None
+        for part in candidate['content']['parts']:
+            inline = part.get('inlineData') or part.get('inline_data')
+            if inline and inline.get('data'):
+                image_b64 = inline['data']
+                break
+        if not image_b64:
+            raise ApiError(502, 'ИИ-Дизайн: сервис не вернул картинку, попробуйте другой запрос.')
+    except ApiError:
+        raise
     except (KeyError, IndexError, TypeError):
         raise ApiError(502, 'ИИ-Дизайн: сервис генерации вернул неожиданный ответ.')
-    return base64.b64decode(b64)
-
-
-def generate_openai_image(prompt):
-    """
-    Один вызов OpenAI Images API (генерация с нуля, без референс-фото).
-    Возвращает bytes картинки (PNG). Бросает ApiError с понятным текстом,
-    если ключ не настроен или API отказал (неверный ключ, нет доступа к
-    модели, сработал фильтр контента и т.п.) — чтобы пользователь увидел
-    причину, а не просто "ошибка".
-    """
-    if not OPENAI_API_KEY:
-        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен OPENAI_API_KEY на сервере.')
-    payload = json.dumps({
-        'model': OPENAI_IMAGE_MODEL,
-        'prompt': prompt,
-        'size': '1024x1024',
-        'n': 1,
-    }).encode('utf-8')
-    req = urllib.request.Request(
-        OPENAI_IMAGES_URL,
-        data=payload,
-        method='POST',
-        headers={
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {OPENAI_API_KEY}',
-        },
-    )
-    data = _openai_images_call(req)
-    return _openai_images_extract(data)
-
-
-def _build_multipart_body(fields, files):
-    """
-    Собирает multipart/form-data тело вручную (requests в проекте нет,
-    только stdlib). fields — {name: str}, files — {name: (filename, bytes,
-    content_type)}. Возвращает (boundary, body_bytes).
-    """
-    boundary = 'AiDesignBoundary' + secrets.token_hex(16)
-    parts = []
-    for name, value in fields.items():
-        parts.append(
-            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode('utf-8')
-        )
-    for name, (filename, content, content_type) in files.items():
-        header = (
-            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
-            f'Content-Type: {content_type}\r\n\r\n'
-        ).encode('utf-8')
-        parts.append(header + content + b'\r\n')
-    parts.append(f'--{boundary}--\r\n'.encode('utf-8'))
-    return boundary, b''.join(parts)
-
-
-def generate_openai_image_edit(prompt, reference_png_bytes):
-    """
-    Вызов OpenAI Images Edit API — генерация "по мотивам" загруженного
-    пользователем референс-фото (участок/существующий дом). Референс
-    передаётся как PNG. Возвращает bytes результата (PNG).
-    """
-    if not OPENAI_API_KEY:
-        raise ApiError(503, 'ИИ-Дизайн временно недоступен: не настроен OPENAI_API_KEY на сервере.')
-    boundary, body = _build_multipart_body(
-        fields={'model': OPENAI_IMAGE_MODEL, 'prompt': prompt, 'size': '1024x1024', 'n': '1'},
-        files={'image': ('reference.png', reference_png_bytes, 'image/png')},
-    )
-    req = urllib.request.Request(
-        OPENAI_IMAGES_EDIT_URL,
-        data=body,
-        method='POST',
-        headers={
-            'Content-Type': f'multipart/form-data; boundary={boundary}',
-            'Authorization': f'Bearer {OPENAI_API_KEY}',
-        },
-    )
-    data = _openai_images_call(req)
-    return _openai_images_extract(data)
+    return base64.b64decode(image_b64)
 
 
 def decode_and_prepare_reference_photo(photo_b64):
@@ -883,6 +858,12 @@ def init_db():
         # ...а затем навсегда закрываем саму возможность дубля уникальным
         # индексом — он же служит целью для ON CONFLICT в апсерте ниже.
         "CREATE UNIQUE INDEX IF NOT EXISTS cart_items_user_product_uidx ON cart_items(user_id, product_id)",
+        # --- точный план этажа для ИИ-Дизайна (считается формулой, не ИИ) ---
+        # Храним исходные числа отдельно от текста prompt, чтобы можно было
+        # пересчитать точный план и в истории генераций, а не только в
+        # момент создания.
+        "ALTER TABLE ai_designs ADD COLUMN IF NOT EXISTS size_m2 DOUBLE PRECISION",
+        "ALTER TABLE ai_designs ADD COLUMN IF NOT EXISTS bedrooms INTEGER",
     ]
     for stmt in migrations:
         conn.execute(stmt)
@@ -2009,6 +1990,11 @@ def ai_design_to_json(row):
         'images': images,
         'error': row['error'],
         'created_at': row['created_at'],
+        # Нужны фронту, чтобы посчитать точный SVG-план этажа (см.
+        # buildFloorPlan() в index.html) — как для только что созданной
+        # генерации, так и заново для каждой записи в истории.
+        'size_m2': row['size_m2'],
+        'bedrooms': row['bedrooms'],
     }
 
 
@@ -2943,12 +2929,24 @@ class Handler(BaseHTTPRequestHandler):
             if style_key and style_key not in AI_DESIGN_STYLE_LABELS:
                 raise ApiError(400, 'Неизвестный стиль')
 
+            bedrooms_raw = body.get('bedrooms')
+            bedrooms = None
+            if bedrooms_raw not in (None, ''):
+                try:
+                    bedrooms = int(bedrooms_raw)
+                except (TypeError, ValueError):
+                    raise ApiError(400, 'Количество спален должно быть числом')
+                if bedrooms < 1 or bedrooms > 10:
+                    raise ApiError(400, 'Укажите реалистичное количество спален (1-10)')
+
             full_prompt = prompt
             if size_m2:
                 size_txt = f'{size_m2:g}'
                 full_prompt += f'. Площадь дома около {size_txt} м².'
             if style_key:
                 full_prompt += f'. Стиль: {AI_DESIGN_STYLE_LABELS[style_key]}.'
+            if bedrooms:
+                full_prompt += f'. Количество спален: {bedrooms}.'
 
             reference_png = decode_and_prepare_reference_photo(body.get('photo_base64'))
 
@@ -2962,24 +2960,22 @@ class Handler(BaseHTTPRequestHandler):
 
             created_at = now_iso()
             cur = conn.execute(
-                "INSERT INTO ai_designs(user_id, prompt, status, created_at) VALUES(%s,%s,'pending',%s)",
-                (user['id'], full_prompt, created_at)
+                "INSERT INTO ai_designs(user_id, prompt, status, created_at, size_m2, bedrooms) "
+                "VALUES(%s,%s,'pending',%s,%s,%s)",
+                (user['id'], full_prompt, created_at, size_m2, bedrooms)
             )
             design_id = cur.lastrowid
             conn.commit()
 
             images = []
             first_error = None
-            # Генерируем 4 картинки параллельно (разные ракурсы) — иначе
-            # по одной последовательно это легко 40-60 секунд ожидания.
+            # Генерируем 3 картинки параллельно (разные ракурсы фасада) — иначе
+            # по одной последовательно это легко 30-45 секунд ожидания.
             # Если пользователь приложил референс-фото — используем его как
             # основу через Images Edit API вместо генерации с нуля.
             def _one(angle_key, angle_prompt):
                 angle_full_prompt = f'{full_prompt}. {angle_prompt}.'
-                if reference_png is not None:
-                    png_bytes = generate_openai_image_edit(angle_full_prompt, reference_png)
-                else:
-                    png_bytes = generate_openai_image(angle_full_prompt)
+                png_bytes = generate_gemini_image(angle_full_prompt, reference_png)
                 filename = f'{design_id}_{angle_key}.png'
                 with open(os.path.join(GENERATED_DIR, filename), 'wb') as f:
                     f.write(png_bytes)

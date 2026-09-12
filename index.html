@@ -1049,6 +1049,10 @@
       <label data-i18n="ai_design_size_label">Площадь дома, м²</label>
       <input type="number" id="aiDesignSize" inputmode="decimal" min="1" max="10000" placeholder="120">
     </div>
+    <div class="form-field">
+      <label data-i18n="ai_design_bedrooms_label">Количество спален</label>
+      <input type="number" id="aiDesignBedrooms" inputmode="numeric" min="1" max="10" placeholder="2">
+    </div>
     <div class="form-field select-wrap">
       <label data-i18n="ai_design_style_label">Стиль</label>
       <select id="aiDesignStyle">
@@ -1061,6 +1065,9 @@
         <option value="modern" data-i18n="ai_design_style_modern">Современный</option>
       </select>
     </div>
+    <p style="padding:0 18px;margin:-4px 0 4px;font-size:12px;color:var(--text-2);" data-i18n="ai_design_plan_note">
+      Если указать площадь и количество спален — точный план этажа с размерами в метрах будет посчитан отдельно (не ИИ-картинкой, а формулой), поэтому цифры на нём всегда верные.
+    </p>
 
     <div class="step-label"><span class="step-badge">3</span><span data-i18n="ai_design_step_desc">Описание</span></div>
     <div style="padding:0 18px;">
@@ -1420,6 +1427,11 @@ const I18N = {
     ai_design_upload_hint:'Fotosurat yuklash uchun bosing — ИИ generatsiya qilishda uni hisobga oladi',
     ai_design_step_params:'Uy parametrlari',
     ai_design_size_label:'Uy maydoni, m²',
+    ai_design_bedrooms_label:"Yotoq xonalari soni",
+    ai_design_plan_note:"Agar maydon va yotoqxonalar sonini kiritsangiz — aniq qavat rejasi (santimetrigacha) formula bilan hisoblanadi, ИИ-rasm emas, shuning uchun raqamlar har doim to'g'ri bo'ladi.",
+    ai_design_plan_title:'Aniq qavat rejasi', ai_design_plan_subtitle:"Formula bilan hisoblangan — rasm emas, shuning uchun o'lchamlar aniq",
+    ai_design_room_living:'Mehmonxona', ai_design_room_kitchen:'Oshxona', ai_design_room_bedroom:'Yotoqxona',
+    ai_design_room_bathroom:'Hammom', ai_design_room_wc:'Hojatxona', ai_design_room_hallway:'Yo\'lak',
     ai_design_style_label:'Uslub',
     ai_design_style_any:'Farqi yo‘q / so‘z bilan ta’riflayman',
     ai_design_style_scandi:'Skandinaviya', ai_design_style_minimal:'Minimalizm',
@@ -1509,6 +1521,11 @@ const I18N = {
     ai_design_upload_hint:'Нажмите, чтобы загрузить фото — ИИ учтёт его при генерации',
     ai_design_step_params:'Параметры дома',
     ai_design_size_label:'Площадь дома, м²',
+    ai_design_bedrooms_label:'Количество спален',
+    ai_design_plan_note:'Если указать площадь и количество спален — точный план этажа с размерами в метрах будет посчитан отдельно (не ИИ-картинкой, а формулой), поэтому цифры на нём всегда верные.',
+    ai_design_plan_title:'Точный план этажа', ai_design_plan_subtitle:'Посчитано формулой — это не рисунок, поэтому размеры точные',
+    ai_design_room_living:'Гостиная', ai_design_room_kitchen:'Кухня', ai_design_room_bedroom:'Спальня',
+    ai_design_room_bathroom:'Ванная', ai_design_room_wc:'Санузел', ai_design_room_hallway:'Коридор',
     ai_design_style_label:'Стиль',
     ai_design_style_any:'Не важно / опишу словами',
     ai_design_style_scandi:'Скандинавский', ai_design_style_minimal:'Минимализм',
@@ -2493,6 +2510,112 @@ function escapeHtml(str){
   div.textContent = str == null ? '' : String(str);
   return div.innerHTML;
 }
+
+/* ============ Точный план этажа (формула, не ИИ) ============
+   Комнаты считаются по доле от общей площади (проверенные ориентиры для
+   жилых домов), спальни делят между собой всё, что осталось. Сумма всех
+   площадей комнат всегда равна введённой площади дома (с точностью до
+   округления при вырезании минимумов для маленьких домов) — поэтому план
+   называется "точным": это не рисунок, а расчёт. */
+function buildFloorPlan(sizeM2, bedroomsInput){
+  const A = Math.max(1, Number(sizeM2) || 0);
+  const N = Math.max(1, Math.min(10, Math.round(Number(bedroomsInput) || 1)));
+
+  let living = Math.max(14, 0.22 * A);
+  let kitchen = Math.max(7, 0.11 * A);
+  let hallway = Math.max(4, 0.08 * A);
+  let bathrooms = N >= 3
+    ? [{name:t('ai_design_room_bathroom'), area: Math.max(3, 0.035*A)}, {name:t('ai_design_room_wc'), area: Math.max(2, 0.02*A)}]
+    : [{name:t('ai_design_room_bathroom'), area: Math.max(3.5, 0.05*A)}];
+
+  let fixedSum = living + kitchen + hallway + bathrooms.reduce((s,b)=>s+b.area,0);
+  let remaining = A - fixedSum;
+  // Для маленьких домов минимумы "служебных" комнат могут не оставить
+  // места на спальни — тогда пропорционально ужимаем их так, чтобы на
+  // каждую спальню осталось хотя бы 6 м².
+  if(remaining < N*6){
+    const targetFixed = Math.max(A*0.3, A - N*6);
+    const scale = Math.max(0.35, targetFixed / fixedSum);
+    living*=scale; kitchen*=scale; hallway*=scale; bathrooms = bathrooms.map(b=>({...b, area:b.area*scale}));
+    fixedSum = living + kitchen + hallway + bathrooms.reduce((s,b)=>s+b.area,0);
+    remaining = A - fixedSum;
+  }
+
+  let bedroomArea = remaining / N;
+  const maxBedroom = 20;
+  if(bedroomArea > maxBedroom){
+    living += (bedroomArea - maxBedroom) * N; // избыток уходит в гостиную
+    bedroomArea = maxBedroom;
+  }
+  const bedroomRooms = Array.from({length:N}, (_,i)=>({
+    name: N>1 ? `${t('ai_design_room_bedroom')} ${i+1}` : t('ai_design_room_bedroom'),
+    area: bedroomArea,
+  }));
+
+  const topRooms = [{name:t('ai_design_room_living'), area:living}, {name:t('ai_design_room_kitchen'), area:kitchen}];
+  const bottomRooms = [...bedroomRooms, ...bathrooms, {name:t('ai_design_room_hallway'), area:hallway}];
+  const topArea = topRooms.reduce((s,r)=>s+r.area,0);
+  const bottomArea = bottomRooms.reduce((s,r)=>s+r.area,0);
+  const totalArea = topArea + bottomArea;
+
+  // Пропорция фасада ~1.3:1 — типична для одноэтажного частного дома.
+  const W = Math.sqrt(totalArea * 1.3);
+  const d1 = topArea / W;
+  const d2 = bottomArea / W;
+  const D = d1 + d2;
+
+  function layoutRow(rooms, rowDepth, y){
+    let x = 0;
+    return rooms.map(r=>{
+      const w = r.area / rowDepth;
+      const room = {name:r.name, area:r.area, x, y, w, d: rowDepth};
+      x += w;
+      return room;
+    });
+  }
+  return {
+    width: W, depth: D, area: totalArea,
+    rooms: [...layoutRow(topRooms, d1, 0), ...layoutRow(bottomRooms, d2, d1)],
+  };
+}
+
+function renderFloorPlanSVG(layout){
+  const maxWidthPx = 320;
+  const s = Math.min(38, maxWidthPx / layout.width);
+  const pad = 26;
+  const svgW = layout.width*s + pad*2;
+  const svgH = layout.depth*s + pad*2;
+  const roomsSvg = layout.rooms.map(r=>{
+    const rx = pad + r.x*s, ry = pad + r.y*s, rw = r.w*s, rd = r.d*s;
+    const cx = rx + rw/2, cy = ry + rd/2;
+    return `<g>
+      <rect x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" width="${rw.toFixed(1)}" height="${rd.toFixed(1)}" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
+      <text x="${cx.toFixed(1)}" y="${(cy-7).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--text)" font-weight="700">${escapeHtml(r.name)}</text>
+      <text x="${cx.toFixed(1)}" y="${(cy+5).toFixed(1)}" font-size="8" text-anchor="middle" fill="var(--text-2)">${r.w.toFixed(2)}×${r.d.toFixed(2)} м</text>
+      <text x="${cx.toFixed(1)}" y="${(cy+16).toFixed(1)}" font-size="8" text-anchor="middle" fill="var(--text-2)">${r.area.toFixed(1)} м²</text>
+    </g>`;
+  }).join('');
+  const wLabelX = pad + (layout.width*s)/2, dLabelY = pad + (layout.depth*s)/2;
+  return `<svg viewBox="0 0 ${svgW.toFixed(1)} ${svgH.toFixed(1)}" style="width:100%;height:auto;display:block;background:var(--bg);border-radius:12px;">
+    <rect x="${pad}" y="${pad}" width="${(layout.width*s).toFixed(1)}" height="${(layout.depth*s).toFixed(1)}" fill="none" stroke="var(--text)" stroke-width="2.5"/>
+    ${roomsSvg}
+    <line x1="${pad}" y1="${(pad-9).toFixed(1)}" x2="${(pad+layout.width*s).toFixed(1)}" y2="${(pad-9).toFixed(1)}" stroke="var(--text-2)" stroke-width="1"/>
+    <text x="${wLabelX.toFixed(1)}" y="${(pad-13).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--text-2)">${layout.width.toFixed(2)} м</text>
+    <line x1="${(pad-9).toFixed(1)}" y1="${pad}" x2="${(pad-9).toFixed(1)}" y2="${(pad+layout.depth*s).toFixed(1)}" stroke="var(--text-2)" stroke-width="1"/>
+    <text x="${(pad-14).toFixed(1)}" y="${dLabelY.toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--text-2)" transform="rotate(-90 ${(pad-14).toFixed(1)} ${dLabelY.toFixed(1)})">${layout.depth.toFixed(2)} м</text>
+  </svg>`;
+}
+
+function renderAiDesignFloorPlanBlock(design){
+  if(!design || !design.size_m2) return '';
+  const layout = buildFloorPlan(design.size_m2, design.bedrooms || 1);
+  return `<div style="margin-top:14px;border:1px solid var(--border);border-radius:12px;padding:12px;">
+    <div style="font-size:13px;font-weight:700;margin-bottom:2px;">${t('ai_design_plan_title')}</div>
+    <div style="font-size:11.5px;color:var(--text-2);margin-bottom:8px;">${t('ai_design_plan_subtitle')}</div>
+    ${renderFloorPlanSVG(layout)}
+  </div>`;
+}
+
 function renderAiDesignImages(images){
   if(!images || !images.length) return '';
   return `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px;">
@@ -2508,7 +2631,7 @@ function renderAiDesignResult(design){
   let note = '';
   if(design.status==='partial') note = `<p style="color:#c77a1a;font-size:12.5px;margin:0 0 4px;">Не все картинки удалось сгенерировать: ${escapeHtml(design.error||'')}</p>`;
   if(design.status==='failed') note = `<p style="color:#d33;font-size:12.5px;margin:0 0 4px;">Не получилось сгенерировать: ${escapeHtml(design.error||'ошибка сервиса')}</p>`;
-  box.innerHTML = note + renderAiDesignImages(design.images);
+  box.innerHTML = note + renderAiDesignImages(design.images) + renderAiDesignFloorPlanBlock(design);
 }
 async function submitAiDesign(){
   if(aiDesignBusy) return;
@@ -2516,6 +2639,7 @@ async function submitAiDesign(){
   const prompt = ta.value.trim();
   if(!prompt){ showToast('Опишите дом текстом — что вы хотите увидеть'); return; }
   const sizeVal = document.getElementById('aiDesignSize').value.trim();
+  const bedroomsVal = document.getElementById('aiDesignBedrooms').value.trim();
   const styleVal = document.getElementById('aiDesignStyle').value;
   aiDesignBusy = true;
   const btn = document.getElementById('aiDesignGenerateBtn');
@@ -2527,6 +2651,7 @@ async function submitAiDesign(){
     const design = await api('/ai-design/generate/', {method:'POST', body:{
       prompt,
       size_m2: sizeVal ? Number(sizeVal) : null,
+      bedrooms: bedroomsVal ? Number(bedroomsVal) : null,
       style: styleVal || null,
       photo_base64: aiDesignPhotoBase64,
     }});
@@ -2535,6 +2660,7 @@ async function submitAiDesign(){
     // сбрасываем форму под следующую генерацию
     removeAiDesignPhoto();
     document.getElementById('aiDesignSize').value = '';
+    document.getElementById('aiDesignBedrooms').value = '';
     document.getElementById('aiDesignStyle').value = '';
   }catch(err){
     document.getElementById('aiDesignResult').innerHTML = '';
@@ -2559,6 +2685,7 @@ async function loadAiDesignHistory(){
         <div style="font-size:13px;font-weight:600;margin-bottom:2px;">${escapeHtml(d.prompt)}</div>
         <div style="font-size:11px;color:var(--text-2);">${new Date(d.created_at).toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</div>
         ${renderAiDesignImages(d.images)}
+        ${renderAiDesignFloorPlanBlock(d)}
       </div>`).join('');
   }catch(err){
     box.innerHTML = `<div class="empty-state">Не удалось загрузить историю</div>`;
