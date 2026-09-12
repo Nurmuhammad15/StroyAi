@@ -234,6 +234,98 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gjjnn05@gmail.com')
 EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'StroyAI')
 
 # ---------------------------------------------------------------------------
+# ИИ-консультант поддержки: раздел "Поддержка → Чат" (/support/chat/) отвечает
+# через Claude (Anthropic API) вместо старого поиска по ключевым словам в FAQ.
+# Нужно на Railway задать:
+#   ANTHROPIC_API_KEY=sk-ant-...  (ключ из console.anthropic.com/settings/keys)
+# Без ключа чат работает как раньше — по простому совпадению слов в FAQ,
+# сайт не падает.
+# ---------------------------------------------------------------------------
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001')
+ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
+
+
+def ask_claude_support(conn, user_message, history=None):
+    """
+    Отвечает на вопрос клиента через Claude, используя реальные FAQ и список
+    товарных категорий сайта как контекст (system-промпт), чтобы бот не
+    придумывал факты о компании, а опирался на то, что реально есть в базе.
+    Бросает ApiError, если ключ не настроен или Anthropic отказал — вызывающий
+    код в этом случае откатывается на старый keyword-поиск по FAQ.
+    """
+    if not ANTHROPIC_API_KEY:
+        raise ApiError(503, 'ИИ-консультант временно недоступен: не настроен ANTHROPIC_API_KEY на сервере.')
+
+    faqs = conn.execute('SELECT question, answer FROM faq ORDER BY id').fetchall()
+    faq_text = '\n'.join(f'В: {f["question"]}\nО: {f["answer"]}' for f in faqs) or '(FAQ пока пуст)'
+
+    system_prompt = (
+        'Ты — виртуальный помощник поддержки интернет-магазина StroyAI '
+        '(стройматериалы: кирпич, газоблок, цемент; есть раздел «ИИ-Дизайн» '
+        'для генерации фото дома и «Строители» для заказа бригады).\n'
+        'Отвечай кратко (2-4 предложения), вежливо, по-русски (если клиент '
+        'пишет на другом языке — отвечай на его языке).\n'
+        'Опирайся на приведённые ниже реальные вопросы-ответы поддержки. '
+        'Если точного ответа там нет — дай общий полезный ответ по теме '
+        'магазина, но НЕ придумывай конкретные цены, сроки доставки или '
+        'номера заказов, которых нет в контексте — в этом случае предложи '
+        'клиенту уточнить в разделе «Мои заказы» или дождаться оператора.\n\n'
+        f'FAQ магазина:\n{faq_text}'
+    )
+
+    messages = list(history or [])
+    messages.append({'role': 'user', 'content': user_message})
+
+    payload = json.dumps({
+        'model': ANTHROPIC_MODEL,
+        'max_tokens': 400,
+        'system': system_prompt,
+        'messages': messages,
+    }).encode('utf-8')
+
+    req = urllib.request.Request(
+        ANTHROPIC_API_URL,
+        data=payload,
+        method='POST',
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        body = ''
+        try:
+            body = e.read().decode('utf-8', 'replace')
+        except Exception:  # noqa: BLE001
+            pass
+        print(f'[support-chat] Claude отказал (HTTP {e.code}): {body}')
+        if e.code in (401, 403):
+            raise ApiError(502, 'ИИ-консультант: неверный или отозванный ANTHROPIC_API_KEY.')
+        if e.code == 429:
+            raise ApiError(429, 'ИИ-консультант: превышен лимит запросов, попробуйте позже.')
+        raise ApiError(502, 'ИИ-консультант: сервис временно вернул ошибку.')
+    except (urllib.error.URLError, OSError) as e:
+        print(f'[support-chat] Сеть недоступна ({type(e).__name__}): {e}')
+        raise ApiError(502, 'ИИ-консультант: не удалось связаться с сервисом.')
+
+    try:
+        parts = [b['text'] for b in data['content'] if b.get('type') == 'text']
+        reply = '\n'.join(parts).strip()
+        if not reply:
+            raise ApiError(502, 'ИИ-консультант: сервис не вернул ответ.')
+    except ApiError:
+        raise
+    except (KeyError, IndexError, TypeError):
+        raise ApiError(502, 'ИИ-консультант: сервис вернул неожиданный ответ.')
+    return reply
+
+
+# ---------------------------------------------------------------------------
 # ИИ-Дизайн: генерация 3 фотореалистичных ракурсов дома через Google Gemini
 # (модель gemini-3.1-flash-image-preview, она же "Nano Banana 2") по
 # текстовому описанию клиента — без промежуточных шагов (без "улучшения"
@@ -2239,14 +2331,35 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == '/support/chat/' and method == 'POST':
             body = self._read_json_body()
-            text = (body.get('message') or '').lower()
-            faqs = conn.execute('SELECT * FROM faq').fetchall()
-            reply = 'Спасибо за обращение! Наш специалист свяжется с вами в ближайшее время.'
-            for f in faqs:
-                if any(w in text for w in ['заказ', 'доставк', 'возврат', 'оплат']) and \
-                   any(w in f['question'].lower() for w in ['заказ', 'доставк', 'возврат', 'оплат']):
-                    reply = f['answer']
-                    break
+            raw_text = (body.get('message') or '').strip()
+            # history: [{role:'user'|'assistant', content:'...'}, ...] — фронт
+            # присылает предыдущие реплики этого диалога, чтобы Claude видел
+            # контекст переписки, а не только последнее сообщение.
+            raw_history = body.get('history') or []
+            history = [
+                {'role': h.get('role'), 'content': h.get('content')}
+                for h in raw_history
+                if h.get('role') in ('user', 'assistant') and h.get('content')
+            ][-10:]  # последние 10 реплик достаточно для контекста и дешевле по токенам
+
+            reply = None
+            if ANTHROPIC_API_KEY and raw_text:
+                try:
+                    reply = ask_claude_support(conn, raw_text, history=history)
+                except ApiError as e:
+                    print(f'[support-chat] Откат на FAQ-поиск: {e.detail}')
+
+            if reply is None:
+                # Запасной вариант, если ANTHROPIC_API_KEY не задан или Claude
+                # недоступен — старый простой поиск по ключевым словам в FAQ.
+                text = raw_text.lower()
+                faqs = conn.execute('SELECT * FROM faq').fetchall()
+                reply = 'Спасибо за обращение! Наш специалист свяжется с вами в ближайшее время.'
+                for f in faqs:
+                    if any(w in text for w in ['заказ', 'доставк', 'возврат', 'оплат']) and \
+                       any(w in f['question'].lower() for w in ['заказ', 'доставк', 'возврат', 'оплат']):
+                        reply = f['answer']
+                        break
             return {'reply': reply}
 
         # --- авторизация по OTP ---------------------------------------

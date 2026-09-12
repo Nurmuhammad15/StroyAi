@@ -3470,6 +3470,10 @@ function appendMsg(role, text){
   div.textContent = text;
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
+  // Храним историю диалога, чтобы ИИ-консультант видел контекст переписки,
+  // а не только последнее сообщение. 'bot' на бэкенде — это 'assistant'.
+  if(!state.chatHistory) state.chatHistory = [];
+  state.chatHistory.push({role: role === 'bot' ? 'assistant' : 'user', content: text});
 }
 async function sendChat(){
   const input = document.getElementById('chatInput');
@@ -3478,7 +3482,10 @@ async function sendChat(){
   appendMsg('user', text);
   input.value = '';
   try{
-    const data = await api('/support/chat/', {method:'POST', auth:false, body:{message:text}});
+    const data = await api('/support/chat/', {method:'POST', auth:false, body:{
+      message:text,
+      history:(state.chatHistory || []).slice(0,-1)  // без только что добавленного сообщения — оно уйдёт как message
+    }});
     appendMsg('bot', data.reply);
   }catch(err){ appendMsg('bot', 'Спасибо за обращение! Наш специалист свяжется с вами в ближайшее время.'); }
 }
