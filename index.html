@@ -1035,16 +1035,7 @@
       Опишите словами дом, который хотите — ИИ сгенерирует несколько фото-вариантов фасада с разных
       сторон и эскиз планировки. Это иллюстрация «как может выглядеть», а не готовый чертёж для стройки.
     </p>
-    <div class="step-label"><span class="step-badge">1</span><span data-i18n="ai_design_step_photo">Фото участка или дома (необязательно)</span></div>
-    <input type="file" id="aiDesignPhotoInput" accept="image/*" style="display:none;" onchange="handleAiDesignPhotoChange(event)">
-    <div class="upload-box" id="aiDesignUploadBox" onclick="document.getElementById('aiDesignPhotoInput').click()">
-      <div class="upload-hint" id="aiDesignUploadHint">
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5M7 9l5-5 5 5M12 4v13"/></svg>
-        <p data-i18n="ai_design_upload_hint">Нажмите, чтобы загрузить фото — ИИ учтёт его при генерации</p>
-      </div>
-    </div>
-
-    <div class="step-label"><span class="step-badge">2</span><span data-i18n="ai_design_step_params">Параметры дома</span></div>
+    <div class="step-label"><span class="step-badge">1</span><span data-i18n="ai_design_step_params">Параметры дома</span></div>
     <div class="form-field">
       <label data-i18n="ai_design_size_label">Площадь дома, м²</label>
       <input type="number" id="aiDesignSize" inputmode="decimal" min="1" max="10000" placeholder="120">
@@ -1069,7 +1060,7 @@
       Если указать площадь и количество спален — точный план этажа с размерами в метрах будет посчитан отдельно (не ИИ-картинкой, а формулой), поэтому цифры на нём всегда верные.
     </p>
 
-    <div class="step-label"><span class="step-badge">3</span><span data-i18n="ai_design_step_desc">Описание</span></div>
+    <div class="step-label"><span class="step-badge">2</span><span data-i18n="ai_design_step_desc">Описание</span></div>
     <div style="padding:0 18px;">
       <textarea id="aiDesignPrompt" rows="3" maxlength="600"
         data-i18n-placeholder="ai_design_placeholder"
@@ -1423,8 +1414,6 @@ const I18N = {
     ai_design_intro:'Uyni so‘z bilan ta’riflang — ИИ bir necha fasad rakursi va qavat rejasi eskizini yaratadi. Bu qanday ko‘rinishi mumkinligi haqidagi tasvir, qurilish uchun chizma emas.',
     ai_design_placeholder:'Masalan: bir qavatli g‘isht uy 120 m², qiyshiq tom, katta derazalar, och rangli fasad',
     ai_design_generate:'Yaratish', ai_design_history:'Yaratishlar tarixi',
-    ai_design_step_photo:'Uchastka yoki uy fotosi (ixtiyoriy)',
-    ai_design_upload_hint:'Fotosurat yuklash uchun bosing — ИИ generatsiya qilishda uni hisobga oladi',
     ai_design_step_params:'Uy parametrlari',
     ai_design_size_label:'Uy maydoni, m²',
     ai_design_bedrooms_label:"Yotoq xonalari soni",
@@ -1520,8 +1509,6 @@ const I18N = {
     ai_design_intro:'Опишите словами дом, который хотите — ИИ сгенерирует несколько фото-вариантов фасада с разных сторон и эскиз планировки. Это иллюстрация «как может выглядеть», а не готовый чертёж для стройки.',
     ai_design_placeholder:'Например: одноэтажный кирпичный дом 120 м², скатная крыша, большие окна, светлый фасад',
     ai_design_generate:'Сгенерировать', ai_design_history:'История генераций',
-    ai_design_step_photo:'Фото участка или дома (необязательно)',
-    ai_design_upload_hint:'Нажмите, чтобы загрузить фото — ИИ учтёт его при генерации',
     ai_design_step_params:'Параметры дома',
     ai_design_size_label:'Площадь дома, м²',
     ai_design_bedrooms_label:'Количество спален',
@@ -2477,40 +2464,6 @@ const AI_DESIGN_ANGLE_LABELS = {
   front: 'Фасад спереди', side: 'Вид сбоку', perspective: 'Ракурс 3/4', plan: 'Эскиз плана'
 };
 let aiDesignBusy = false;
-let aiDesignPhotoBase64 = null;
-const AI_DESIGN_MAX_PHOTO_MB = 6;
-function handleAiDesignPhotoChange(evt){
-  const file = evt.target.files && evt.target.files[0];
-  if(!file) return;
-  if(!file.type.startsWith('image/')){ showToast('Выберите файл изображения'); evt.target.value=''; return; }
-  if(file.size > AI_DESIGN_MAX_PHOTO_MB * 1024 * 1024){ showToast(`Фото слишком большое (максимум ${AI_DESIGN_MAX_PHOTO_MB} МБ)`); evt.target.value=''; return; }
-  const reader = new FileReader();
-  reader.onload = () => {
-    aiDesignPhotoBase64 = reader.result; // data:image/...;base64,....
-    renderAiDesignPhotoPreview();
-  };
-  reader.readAsDataURL(file);
-}
-function removeAiDesignPhoto(evt){
-  if(evt) evt.stopPropagation();
-  aiDesignPhotoBase64 = null;
-  document.getElementById('aiDesignPhotoInput').value = '';
-  renderAiDesignPhotoPreview();
-}
-function renderAiDesignPhotoPreview(){
-  const box = document.getElementById('aiDesignUploadBox');
-  if(aiDesignPhotoBase64){
-    box.classList.add('has-photo');
-    box.innerHTML = `<button type="button" class="upload-remove" onclick="removeAiDesignPhoto(event)">✕</button>
-      <img src="${aiDesignPhotoBase64}" style="width:100%;height:100%;object-fit:cover;display:block;">`;
-  }else{
-    box.classList.remove('has-photo');
-    box.innerHTML = `<div class="upload-hint" id="aiDesignUploadHint">
-      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5M7 9l5-5 5 5M12 4v13"/></svg>
-      <p data-i18n="ai_design_upload_hint">${t('ai_design_upload_hint')}</p>
-    </div>`;
-  }
-}
 function escapeHtml(str){
   const div = document.createElement('div');
   div.textContent = str == null ? '' : String(str);
@@ -2710,12 +2663,10 @@ async function submitAiDesign(){
       size_m2: sizeVal ? Number(sizeVal) : null,
       bedrooms: bedroomsVal ? Number(bedroomsVal) : null,
       style: styleVal || null,
-      photo_base64: aiDesignPhotoBase64,
     }});
     renderAiDesignResult(design);
     loadAiDesignHistory();
     // сбрасываем форму под следующую генерацию
-    removeAiDesignPhoto();
     document.getElementById('aiDesignSize').value = '';
     document.getElementById('aiDesignBedrooms').value = '';
     document.getElementById('aiDesignStyle').value = '';

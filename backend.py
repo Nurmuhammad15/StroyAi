@@ -33,7 +33,6 @@ import urllib.request
 import urllib.error
 import psycopg2
 import psycopg2.extras
-from PIL import Image
 import psycopg2.pool
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -255,7 +254,6 @@ OPENAI_IMAGES_URL = 'https://api.openai.com/v1/images/generations'
 # Референс-фото от пользователя (участок / существующий дом) — ограничение
 # на размер декодированного файла, чтобы не гонять гигантские фото в API
 # и не давать положить сервер огромным телом запроса.
-AI_DESIGN_MAX_PHOTO_BYTES = 6 * 1024 * 1024
 
 # Стили, которые можно выбрать в дропдауне на фронте (см. index.html,
 # #aiDesignStyle) — ключ должен совпадать со значением <option value="...">.
@@ -425,34 +423,6 @@ def generate_openai_photo(prompt, size='1024x1024'):
         raise ApiError(502, 'ИИ-Дизайн (фото): сервис вернул неожиданный ответ.')
     return base64.b64decode(image_b64)
 
-
-def decode_and_prepare_reference_photo(photo_b64):
-    """
-    Декодирует base64-фото, присланное фронтом (может быть с префиксом
-    data:image/...;base64,), проверяет что это валидное изображение и
-    сжимает его до разумного размера перед отправкой в OpenAI. Возвращает
-    PNG bytes или None, если фото не передали.
-    """
-    if not photo_b64:
-        return None
-    if ',' in photo_b64 and photo_b64.strip().startswith('data:'):
-        photo_b64 = photo_b64.split(',', 1)[1]
-    try:
-        raw = base64.b64decode(photo_b64, validate=True)
-    except Exception:
-        raise ApiError(400, 'Не удалось прочитать загруженное фото')
-    if len(raw) > AI_DESIGN_MAX_PHOTO_BYTES:
-        raise ApiError(400, 'Фото слишком большое (максимум 6 МБ)')
-    try:
-        img = Image.open(io.BytesIO(raw))
-        img.load()
-        img = img.convert('RGB')
-    except Exception:
-        raise ApiError(400, 'Файл не похож на изображение — попробуйте другое фото')
-    img.thumbnail((1024, 1024))
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    return buf.getvalue()
 
 STATUS_LABELS = {
     'processing': 'В обработке',
@@ -3000,15 +2970,14 @@ class Handler(BaseHTTPRequestHandler):
             if bedrooms:
                 full_prompt += f'. Количество спален: {bedrooms}.'
 
-            # Референс-фото участка/дома от клиента: пока просто валидируется
-            # и сохраняется в БД историей на будущее — обычный OpenAI
-            # images/generations эндпоинт референс-картинку не принимает
-            # (это отдельный images/edits эндпоинт, здесь не подключён).
-            reference_png = decode_and_prepare_reference_photo(body.get('photo_base64'))
-
             today_start = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            # В лимит считаются только попытки, где хоть что-то реально
+            # сгенерировалось (done/partial) — полностью упавшие из-за
+            # ненастроенного/неверного ключа (status='failed') квоту не
+            # тратят, иначе пользователь теряет попытки на пустом месте.
             used_today = conn.execute(
-                "SELECT COUNT(*) AS c FROM ai_designs WHERE user_id=%s AND created_at >= %s",
+                "SELECT COUNT(*) AS c FROM ai_designs "
+                "WHERE user_id=%s AND created_at >= %s AND status IN ('done','partial')",
                 (user['id'], today_start)
             ).fetchone()['c']
             if used_today >= AI_DESIGN_DAILY_LIMIT:
