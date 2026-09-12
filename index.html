@@ -1432,6 +1432,9 @@ const I18N = {
     ai_design_plan_title:'Aniq qavat rejasi', ai_design_plan_subtitle:"Formula bilan hisoblangan — rasm emas, shuning uchun o'lchamlar aniq",
     ai_design_room_living:'Mehmonxona', ai_design_room_kitchen:'Oshxona', ai_design_room_bedroom:'Yotoqxona',
     ai_design_room_bathroom:'Hammom', ai_design_room_wc:'Hojatxona', ai_design_room_hallway:'Yo\'lak',
+    ai_design_room_wardrobe:'Kiyimxona', ai_design_room_study:'Kabinet', ai_design_room_pantry:'Ombor',
+    ai_design_room_guest_wc:'Mehmonlar uchun hojatxona', ai_design_room_terrace:'Terrasa', ai_design_room_garage:'Garaj',
+    ai_design_room_guest_bedroom:'Mehmon yotoqxonasi', ai_design_room_winter_garden:'Qishki bog\'',
     ai_design_style_label:'Uslub',
     ai_design_style_any:'Farqi yo‘q / so‘z bilan ta’riflayman',
     ai_design_style_scandi:'Skandinaviya', ai_design_style_minimal:'Minimalizm',
@@ -1526,6 +1529,9 @@ const I18N = {
     ai_design_plan_title:'Точный план этажа', ai_design_plan_subtitle:'Посчитано формулой — это не рисунок, поэтому размеры точные',
     ai_design_room_living:'Гостиная', ai_design_room_kitchen:'Кухня', ai_design_room_bedroom:'Спальня',
     ai_design_room_bathroom:'Ванная', ai_design_room_wc:'Санузел', ai_design_room_hallway:'Коридор',
+    ai_design_room_wardrobe:'Гардеробная', ai_design_room_study:'Кабинет', ai_design_room_pantry:'Кладовая',
+    ai_design_room_guest_wc:'Гостевой санузел', ai_design_room_terrace:'Терраса', ai_design_room_garage:'Гараж',
+    ai_design_room_guest_bedroom:'Гостевая спальня', ai_design_room_winter_garden:'Зимний сад',
     ai_design_style_label:'Стиль',
     ai_design_style_any:'Не важно / опишу словами',
     ai_design_style_scandi:'Скандинавский', ai_design_style_minimal:'Минимализм',
@@ -2513,70 +2519,110 @@ function escapeHtml(str){
 
 /* ============ Точный план этажа (формула, не ИИ) ============
    Комнаты считаются по доле от общей площади (проверенные ориентиры для
-   жилых домов), спальни делят между собой всё, что осталось. Сумма всех
-   площадей комнат всегда равна введённой площади дома (с точностью до
-   округления при вырезании минимумов для маленьких домов) — поэтому план
-   называется "точным": это не рисунок, а расчёт. */
+   жилых домов). Если после гостиной/кухни/спален/санузлов/коридора
+   остаётся много свободной площади (большой дом с малым числом спален) —
+   она НЕ сваливается в одну гигантскую гостиную, а грамотно раскидывается
+   по дополнительным помещениям (гардеробная, кабинет, кладовая, терраса,
+   гараж и т.д.) — как сделал бы архитектор. Сумма площадей всех комнат
+   всегда равна введённой площади дома — поэтому план "точный": это не
+   рисунок, а расчёт. */
 function buildFloorPlan(sizeM2, bedroomsInput){
   const A = Math.max(1, Number(sizeM2) || 0);
   const N = Math.max(1, Math.min(10, Math.round(Number(bedroomsInput) || 1)));
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-  let living = Math.max(14, 0.22 * A);
-  let kitchen = Math.max(7, 0.11 * A);
-  let hallway = Math.max(4, 0.08 * A);
+  let kitchen = clamp(0.10 * A, 8, 20);
+  let hallway = clamp(0.07 * A, 4, 14);
   let bathrooms = N >= 3
-    ? [{name:t('ai_design_room_bathroom'), area: Math.max(3, 0.035*A)}, {name:t('ai_design_room_wc'), area: Math.max(2, 0.02*A)}]
-    : [{name:t('ai_design_room_bathroom'), area: Math.max(3.5, 0.05*A)}];
+    ? [{name:t('ai_design_room_bathroom'), area: clamp(0.035*A, 4, 9)}, {name:t('ai_design_room_wc'), area: clamp(0.02*A, 2.5, 5)}]
+    : [{name:t('ai_design_room_bathroom'), area: clamp(0.05*A, 4, 10)}];
+  let living = clamp(0.20 * A, 16, 45);
 
-  let fixedSum = living + kitchen + hallway + bathrooms.reduce((s,b)=>s+b.area,0);
-  let remaining = A - fixedSum;
+  let mustHaveSum = kitchen + hallway + living + bathrooms.reduce((s,b)=>s+b.area,0);
   // Для маленьких домов минимумы "служебных" комнат могут не оставить
   // места на спальни — тогда пропорционально ужимаем их так, чтобы на
-  // каждую спальню осталось хотя бы 6 м².
-  if(remaining < N*6){
-    const targetFixed = Math.max(A*0.3, A - N*6);
-    const scale = Math.max(0.35, targetFixed / fixedSum);
+  // каждую спальню осталось хотя бы 8 м².
+  if(A - mustHaveSum < N*8){
+    const targetFixed = Math.max(A*0.28, A - N*8);
+    const scale = Math.max(0.4, targetFixed / mustHaveSum);
     living*=scale; kitchen*=scale; hallway*=scale; bathrooms = bathrooms.map(b=>({...b, area:b.area*scale}));
-    fixedSum = living + kitchen + hallway + bathrooms.reduce((s,b)=>s+b.area,0);
-    remaining = A - fixedSum;
+    mustHaveSum = kitchen + hallway + living + bathrooms.reduce((s,b)=>s+b.area,0);
   }
 
-  let bedroomArea = remaining / N;
-  const maxBedroom = 20;
-  if(bedroomArea > maxBedroom){
-    living += (bedroomArea - maxBedroom) * N; // избыток уходит в гостиную
-    bedroomArea = maxBedroom;
+  let bedroomArea = clamp((A - mustHaveSum) / N, 9, 18);
+  let leftover = A - mustHaveSum - bedroomArea*N;
+
+  // 1) Свободная площадь сверх стандартных комнат уходит в полезные
+  //    дополнительные помещения — так делает архитектор, а не раздувает
+  //    одну комнату до абсурда.
+  const bonusRooms = [];
+  if(leftover > 10){
+    const bonusDefs = [
+      {name:t('ai_design_room_wardrobe'), cap:10},
+      {name:t('ai_design_room_pantry'), cap:8},
+      {name:t('ai_design_room_study'), cap:16},
+      {name:t('ai_design_room_guest_bedroom'), cap:16},
+      {name:t('ai_design_room_winter_garden'), cap:14},
+      {name:t('ai_design_room_terrace'), cap:20},
+      {name:t('ai_design_room_garage'), cap:25},
+    ];
+    for(const def of bonusDefs){
+      if(leftover <= 6) break;
+      const area = Math.min(def.cap, leftover);
+      bonusRooms.push({name:def.name, area});
+      leftover -= area;
+    }
   }
+  // 2) Если и после этого остался большой запас (огромный дом при малом
+  //    числе спален) — увеличиваем сами спальни (просторные 18-32 м²
+  //    выглядят нормально для большого дома), а не создаём "вторую",
+  //    "третью" гостиную ради галочки.
+  if(leftover > 10){
+    const maxBedroom = 32;
+    const canGrow = (maxBedroom - bedroomArea) * N;
+    const grow = Math.min(leftover, canGrow);
+    bedroomArea += grow / N;
+    leftover -= grow;
+  }
+  // 3) Совсем небольшой хвост (или крайний случай — огромный дом с 1-2
+  //    спальнями, когда даже спальни и доп. комнаты не выбрали всё) — в
+  //    гостиную. Это уже не искажает план заметно.
+  if(leftover > 0) living += leftover;
+
   const bedroomRooms = Array.from({length:N}, (_,i)=>({
     name: N>1 ? `${t('ai_design_room_bedroom')} ${i+1}` : t('ai_design_room_bedroom'),
     area: bedroomArea,
   }));
 
   const topRooms = [{name:t('ai_design_room_living'), area:living}, {name:t('ai_design_room_kitchen'), area:kitchen}];
-  const bottomRooms = [...bedroomRooms, ...bathrooms, {name:t('ai_design_room_hallway'), area:hallway}];
-  const topArea = topRooms.reduce((s,r)=>s+r.area,0);
-  const bottomArea = bottomRooms.reduce((s,r)=>s+r.area,0);
-  const totalArea = topArea + bottomArea;
+  const secondaryRooms = [...bedroomRooms, ...bathrooms, {name:t('ai_design_room_hallway'), area:hallway}, ...bonusRooms];
 
-  // Пропорция фасада ~1.3:1 — типична для одноэтажного частного дома.
-  const W = Math.sqrt(totalArea * 1.3);
-  const d1 = topArea / W;
-  const d2 = bottomArea / W;
-  const D = d1 + d2;
-
-  function layoutRow(rooms, rowDepth, y){
-    let x = 0;
-    return rooms.map(r=>{
-      const w = r.area / rowDepth;
-      const room = {name:r.name, area:r.area, x, y, w, d: rowDepth};
-      x += w;
-      return room;
-    });
+  // Разбиваем "второстепенные" комнаты на ряды не более чем по 3 штуки —
+  // иначе на плане при большом числе спален подписи налезают друг на друга.
+  const ROOMS_PER_ROW = 3;
+  const rows = [topRooms];
+  for(let i=0; i<secondaryRooms.length; i+=ROOMS_PER_ROW){
+    rows.push(secondaryRooms.slice(i, i+ROOMS_PER_ROW));
   }
-  return {
-    width: W, depth: D, area: totalArea,
-    rooms: [...layoutRow(topRooms, d1, 0), ...layoutRow(bottomRooms, d2, d1)],
-  };
+
+  const totalArea = rows.reduce((s,row)=>s + row.reduce((s2,r)=>s2+r.area,0), 0);
+  const W = Math.sqrt(totalArea * 1.3);
+
+  let y = 0;
+  const placedRooms = [];
+  rows.forEach(row=>{
+    const rowArea = row.reduce((s,r)=>s+r.area,0);
+    const rowDepth = rowArea / W;
+    let x = 0;
+    row.forEach(r=>{
+      const w = r.area / rowDepth;
+      placedRooms.push({name:r.name, area:r.area, x, y, w, d: rowDepth});
+      x += w;
+    });
+    y += rowDepth;
+  });
+
+  return { width: W, depth: y, area: totalArea, rooms: placedRooms };
 }
 
 function renderFloorPlanSVG(layout){
@@ -2588,11 +2634,22 @@ function renderFloorPlanSVG(layout){
   const roomsSvg = layout.rooms.map(r=>{
     const rx = pad + r.x*s, ry = pad + r.y*s, rw = r.w*s, rd = r.d*s;
     const cx = rx + rw/2, cy = ry + rd/2;
+    // Подписи адаптируются под размер комнаты, чтобы не наезжать друг на
+    // друга на узких помещениях (например когда в ряду сразу 3 спальни).
+    const nameSize = rw < 60 ? 7.5 : 9;
+    const detailSize = rw < 60 ? 6.5 : 8;
+    const showDims = rw >= 42 && rd >= 30;
+    const showArea = rw >= 32;
+    let inner = `<text x="${cx.toFixed(1)}" y="${(cy - (showDims?7:0)).toFixed(1)}" font-size="${nameSize}" text-anchor="middle" fill="var(--text)" font-weight="700">${escapeHtml(r.name)}</text>`;
+    if(showDims){
+      inner += `<text x="${cx.toFixed(1)}" y="${(cy+5).toFixed(1)}" font-size="${detailSize}" text-anchor="middle" fill="var(--text-2)">${r.w.toFixed(2)}×${r.d.toFixed(2)} м</text>`;
+    }
+    if(showArea){
+      inner += `<text x="${cx.toFixed(1)}" y="${(cy+(showDims?16:12)).toFixed(1)}" font-size="${detailSize}" text-anchor="middle" fill="var(--text-2)">${r.area.toFixed(1)} м²</text>`;
+    }
     return `<g>
       <rect x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" width="${rw.toFixed(1)}" height="${rd.toFixed(1)}" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-      <text x="${cx.toFixed(1)}" y="${(cy-7).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--text)" font-weight="700">${escapeHtml(r.name)}</text>
-      <text x="${cx.toFixed(1)}" y="${(cy+5).toFixed(1)}" font-size="8" text-anchor="middle" fill="var(--text-2)">${r.w.toFixed(2)}×${r.d.toFixed(2)} м</text>
-      <text x="${cx.toFixed(1)}" y="${(cy+16).toFixed(1)}" font-size="8" text-anchor="middle" fill="var(--text-2)">${r.area.toFixed(1)} м²</text>
+      ${inner}
     </g>`;
   }).join('');
   const wLabelX = pad + (layout.width*s)/2, dLabelY = pad + (layout.depth*s)/2;
